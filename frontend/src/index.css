@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-slate-100 font-sans text-slate-900;
+  }
+  ::selection {
+    @apply bg-brand-500/20;
+  }
+}
+
+@layer components {
+  /* Superficie base */
+  .card {
+    @apply rounded-xl border border-slate-200/80 bg-white shadow-soft;
+  }
+
+  /* Botones */
+  .btn-primary {
+    @apply inline-flex h-9 select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-brand-600 px-3.5 text-[13px] font-semibold text-white shadow-sm shadow-brand-600/25 transition-colors hover:bg-brand-500 active:bg-brand-700;
+  }
+  .btn-secondary {
+    @apply inline-flex h-9 select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-700 transition-colors hover:border-slate-300 hover:bg-slate-50 active:bg-slate-100;
+  }
+  .btn-ghost {
+    @apply inline-flex h-9 select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900;
+  }
+
+  /* Botones de icono */
+  .icon-btn {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900;
+  }
+  .icon-btn-dark {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-ink-400 transition-colors hover:bg-white/10 hover:text-white;
+  }
+
+  /* Form */
+  .field {
+    @apply h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-medium text-slate-700 outline-none transition-shadow placeholder:font-normal placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-500/20;
+  }
+  .field-label {
+    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-slate-400;
+  }
+
+  /* Chips / badges */
+  .chip {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold;
+  }
+}
+
+/* ============ Scrollbars ============ */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: rgb(203 213 225);
+  border-radius: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb:hover {
+  background: rgb(148 163 184);
+}
+
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.12) transparent;
+}
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.12);
+  border-radius: 8px;
+}
+
+/* ============ Score Ring (Match IA circular) ============ */
+.score-ring {
+  --score: 0;
+  --score-color: #8b5cf6;
+  --score-glow: transparent;
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  background: conic-gradient(
+    var(--score-color) calc(var(--score) * 1%),
+    rgb(226 232 240 / 0.6) 0
+  );
+  box-shadow:
+    0 0 0 3px var(--score-glow),
+    0 3px 14px var(--score-glow);
+}
+.score-ring__inner {
+  position: absolute;
+  inset: 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  background: #fff;
+}
+
+/* ============ Timeline: nodo actual pulsante ============ */
+@keyframes timeline-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  70%,
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+.timeline-pulse::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  z-index: 0;
+  border-radius: 9999px;
+  border: 2px solid rgb(139 92 246 / 0.6);
+  animation: timeline-pulse 2.2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* ============ Entrada del panel de detalle (mobile) ============ */
+@keyframes panel-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@media (max-width: 1279px) {
+  #detail-panel {
+    animation: panel-slide-in 0.3s ease-out;
+  }
+}
+
+/* ============ Inputs numéricos limpios ============ */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

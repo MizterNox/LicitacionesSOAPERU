@@ -1,0 +1,17 @@
+[project]
+name = "licitaciones-engine"
+version = "0.1.0"
+description = "Pipeline ELT y API para Licitaciones del Estado (OECE / SEACE)"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+
+
