@@ -16,6 +16,21 @@ export const PAGE_TITLES = {
 
 export default function Topbar() {
   const { state, dispatch } = useApp()
+  const lastRun = state.cronStatus?.ultima_ejecucion
+  const syncLabel = lastRun?.iniciado_en
+    ? (() => {
+        try {
+          const d = new Date(lastRun.iniciado_en)
+          const fStr = d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+          const hStr = d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })
+          const g = lastRun.total_guardados != null ? ` · ${lastRun.total_guardados} reg.` : ''
+          return `Actualizado: ${fStr} ${hStr}${g}`
+        } catch {
+          return 'Sincronizado con SEACE'
+        }
+      })()
+    : 'Sincronizado con SEACE'
+
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 md:px-5">
       <button onClick={() => dispatch({ type: 'TOGGLE_MOBILE_NAV' })} className="icon-btn lg:hidden" title="Abrir menú">
@@ -24,13 +39,18 @@ export default function Topbar() {
 
       <div className="min-w-0 leading-tight">
         <h1 className="truncate text-[14px] font-bold text-slate-900">{PAGE_TITLES[state.view] ?? 'Dashboard'}</h1>
-        <p className="mt-px hidden items-center gap-1.5 text-[11px] text-slate-400 sm:flex">
+        <button
+          type="button"
+          onClick={() => dispatch({ type: 'SET_VIEW', view: 'config' })}
+          className="mt-px hidden items-center gap-1.5 text-[11px] text-slate-500 hover:text-brand-600 transition-colors sm:flex text-left"
+          title="Ver auditoría y detalles del cron en Configuración"
+        >
           <span className="relative flex h-1.5 w-1.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60"></span>
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
           </span>
-          Sincronizado con SEACE · 16/09/2026
-        </p>
+          <span>{syncLabel}</span>
+        </button>
       </div>
 
       {/* Buscador global */}

@@ -11,37 +11,73 @@ from etl.transformer import transform_and_filter_releases
 
 logger = logging.getLogger(__name__)
 
-async def guardar_releases_en_db(records_to_save: List[Dict[str, Any]]) -> int:
+async def guardar_releases_en_db(records_to_save: List[Dict[str, Any]]) -> Dict[str, int]:
     """
-    Carga los registros transformados en PostgreSQL realizando UPSERT (INSERT ... ON CONFLICT DO UPDATE).
+    Carga los registros transformados en PostgreSQL con validación de no-sobreescritura (Opción B):
+    - Si el registro no existe: INSERT.
+    - Si el registro ya existe con el MISMO estado: IGNORAR (DO NOTHING, preservando intacto el registro).
+    - Si el registro ya existe pero su estado CAMBIÓ: UPDATE del estado y payload, preservando fecha_lanzamiento y created_at.
     """
     if not records_to_save:
         print("[LOADER] No hay registros para guardar en base de datos.")
-        return 0
+        return {"total_guardados": 0, "nuevos": 0, "actualizados": 0, "ignorados": 0}
 
-    guardados = 0
+    nuevos = 0
+    actualizados = 0
+    ignorados = 0
+
+    from sqlalchemy import select
+
     async with AsyncSessionLocal() as session:
         async with session.begin():
-            for values in records_to_save:
-                stmt = insert(TenderModel).values(**values)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=[TenderModel.ocid],
-                    set_={
-                        "titulo": stmt.excluded.titulo,
-                        "descripcion": stmt.excluded.descripcion,
-                        "estado": stmt.excluded.estado,
-                        "objeto_contratacion": stmt.excluded.objeto_contratacion,
-                        "monto_estimado": stmt.excluded.monto_estimado,
-                        "moneda": stmt.excluded.moneda,
-                        "fecha_lanzamiento": stmt.excluded.fecha_lanzamiento,
-                        "raw_payload": stmt.excluded.raw_payload
-                    }
-                )
-                await session.execute(stmt)
-                guardados += 1
+            # Obtener ocids existentes y sus estados actuales para validación defensiva
+            ocids = [r["ocid"] for r in records_to_save if r.get("ocid")]
+            existing_map = {}
+            if ocids:
+                stmt_check = select(TenderModel.ocid, TenderModel.estado).where(TenderModel.ocid.in_(ocids))
+                res = await session.execute(stmt_check)
+                existing_map = {row.ocid: row.estado for row in res.all()}
 
-    print(f"[LOADER] ¡Se persistieron exitosamente {guardados} registros en la base de datos PostgreSQL!")
-    return guardados
+            for values in records_to_save:
+                ocid = values.get("ocid")
+                if not ocid:
+                    continue
+
+                if ocid not in existing_map:
+                    # Nuevo registro: inserción completa
+                    stmt_insert = insert(TenderModel).values(**values)
+                    await session.execute(stmt_insert)
+                    nuevos += 1
+                else:
+                    estado_anterior = existing_map[ocid]
+                    estado_nuevo = values.get("estado")
+                    if estado_anterior != estado_nuevo:
+                        # El estado ha cambiado (ej. Vigente -> Adjudicado): actualizar campos permitidos
+                        # preservando fecha_lanzamiento y created_at original
+                        stmt_update = insert(TenderModel).values(**values).on_conflict_do_update(
+                            index_elements=[TenderModel.ocid],
+                            set_={
+                                "estado": values.get("estado"),
+                                "titulo": values.get("titulo"),
+                                "descripcion": values.get("descripcion"),
+                                "monto_estimado": values.get("monto_estimado"),
+                                "raw_payload": values.get("raw_payload")
+                            }
+                        )
+                        await session.execute(stmt_update)
+                        actualizados += 1
+                    else:
+                        # Mismo estado: NO SOBREESCRIBIR, preservar datos previos
+                        ignorados += 1
+
+    total_guardados = nuevos + actualizados
+    print(f"[LOADER] Resultado: {nuevos} nuevos, {actualizados} actualizados por cambio de estado, {ignorados} ignorados (sin sobreescritura).")
+    return {
+        "total_guardados": total_guardados,
+        "nuevos": nuevos,
+        "actualizados": actualizados,
+        "ignorados": ignorados
+    }
 
 class ELTOrchestrator:
     """
@@ -101,14 +137,17 @@ class ELTOrchestrator:
         total_filtrados = len(records_transformados)
         print(f"[TRANSFORM] Releases vigentes filtrados y listos: {total_filtrados} (de {total_extraidos} extraídos)")
 
-        # 3. Fase de Carga (PostgreSQL UPSERT)
-        total_guardados = await guardar_releases_en_db(records_transformados)
+        # 3. Fase de Carga (PostgreSQL con validación de no sobreescritura)
+        save_stats = await guardar_releases_en_db(records_transformados)
 
         resultado = {
             "status": "success",
             "total_extraidos": total_extraidos,
             "total_filtrados_vigentes": total_filtrados,
-            "total_guardados_db": total_guardados,
+            "total_guardados_db": save_stats["total_guardados"],
+            "total_nuevos": save_stats["nuevos"],
+            "total_actualizados": save_stats["actualizados"],
+            "total_ignorados": save_stats["ignorados"],
             "config": {
                 "objeto": objeto,
                 "estado": estado,

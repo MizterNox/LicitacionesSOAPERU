@@ -3,6 +3,14 @@
 
 import { createContext, useContext, useMemo, useReducer } from 'react'
 
+export const getTodayDateString = () => {
+  const d = new Date()
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 export const DEFAULT_FILTERS = {
   tipo: 'Todos', // 'Todos' | 'LP' | 'CP' | 'MS' | 'AS' | 'MC'
   entidad: 'todas',
@@ -12,7 +20,7 @@ export const DEFAULT_FILTERS = {
   valorMin: '',
   valorMax: '',
   plazo: 'todas', // 'todas' | '48h' | '7d' | '30d'
-  fecha: 'hoy', // 'hoy' por defecto | 'todos'
+  fecha: getTodayDateString(), // Fecha de hoy por defecto (YYYY-MM-DD)
 }
 
 const initialState = {
@@ -27,6 +35,8 @@ const initialState = {
   query: '',
   sort: 'date', // 'date' | 'match' | 'value' | 'deadline'
   filters: { ...DEFAULT_FILTERS },
+  cronStatus: null, // Datos de la última ejecución del cron
+  tiposConfig: ['Servicios', 'Bienes', 'Obras'], // Tipos activos
 }
 
 function reducer(state, action) {
@@ -43,6 +53,10 @@ function reducer(state, action) {
       return { ...state, isLoading: action.payload }
     case 'SET_ERROR':
       return { ...state, error: action.payload, isLoading: false }
+    case 'SET_CRON_STATUS':
+      return { ...state, cronStatus: action.payload }
+    case 'SET_TIPOS_CONFIG':
+      return { ...state, tiposConfig: action.payload }
     case 'SET_VIEW':
       return { ...state, view: action.view, mobileNavOpen: false, selectedId: null }
     case 'SELECT_BID':

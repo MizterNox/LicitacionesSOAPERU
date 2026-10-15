@@ -10,6 +10,7 @@ import KpiRow from './components/dashboard/KpiRow.jsx'
 import FilterBar from './components/dashboard/FilterBar.jsx'
 import BiddingTable from './components/dashboard/BiddingTable.jsx'
 import DetailPanel from './components/dashboard/DetailPanel.jsx'
+import ConfigView from './components/config/ConfigView.jsx'
 import { Icon } from './components/ui/Icon.jsx'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -85,6 +86,9 @@ function MainContent() {
       </div>
     )
   }
+  if (state.view === 'config') {
+    return <ConfigView />
+  }
   return <PlaceholderView view={state.view} />
 }
 
@@ -92,6 +96,29 @@ export default function App() {
   const { state, dispatch } = useApp()
   const selected = useSelectedConvocatoria()
   const { filters, query } = state
+
+  // Cargar estado inicial de sincronización de cron y tipos activos
+  useEffect(() => {
+    const fetchCronAndConfig = async () => {
+      try {
+        const resStatus = await fetch(`${API_BASE_URL}/api/v1/cron/status`)
+        if (resStatus.ok) {
+          const dataStatus = await resStatus.json()
+          dispatch({ type: 'SET_CRON_STATUS', payload: dataStatus })
+        }
+        const resTipos = await fetch(`${API_BASE_URL}/api/v1/settings/tipos`)
+        if (resTipos.ok) {
+          const dataTipos = await resTipos.json()
+          if (dataTipos.tipos_activos) {
+            dispatch({ type: 'SET_TIPOS_CONFIG', payload: dataTipos.tipos_activos })
+          }
+        }
+      } catch (e) {
+        console.warn('No se pudo precargar estado de cron/settings:', e)
+      }
+    }
+    fetchCronAndConfig()
+  }, [dispatch])
 
   // =========================================================================
   // HOOK REACTIVO: Consume dinámicamente @app.get('/api/licitaciones')

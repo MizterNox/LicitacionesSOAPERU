@@ -2,7 +2,7 @@
 // Cada control es "controlado": value ← state, onChange → dispatch(SET_FILTER).
 
 import { useMemo } from 'react'
-import { useApp } from '../../store/AppState.jsx'
+import { useApp, getTodayDateString } from '../../store/AppState.jsx'
 import { Icon } from '../ui/Icon.jsx'
 
 const TIPOS = ['Todos', 'LP', 'CP', 'MS', 'AS', 'MC']
@@ -50,7 +50,7 @@ export default function FilterBar() {
         <span className="flex items-center gap-2 text-[13px] font-bold text-slate-700">
           <Icon name="sliders" className="h-4 w-4 text-brand-600" /> Filtros
           {active ? <span className="chip bg-brand-50 text-brand-700">{active} activo{active > 1 ? 's' : ''}</span> : null}
-          {state.isLoading && <span className="text-xs text-brand-600 animate-pulse font-medium">· Actualizando desde PostgreSQL...</span>}
+          {state.isLoading && <span className="text-xs text-brand-600 animate-pulse font-medium">· Actualizando convocatorias...</span>}
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button onClick={() => dispatch({ type: 'CLEAR_FILTERS' })} className="btn-ghost h-8 px-2.5 text-xs">
@@ -71,15 +71,37 @@ export default function FilterBar() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {/* Tipo de objeto (enum: Bienes / Servicios / Obras) */}
             <div>
-              <label htmlFor="f-tipo-objeto" className="field-label">Objeto Contractual</label>
-              <div className="relative">
-                <select id="f-tipo-objeto" value={f.tipoObjeto} onChange={(e) => set('tipoObjeto', e.target.value)} className="field appearance-none pr-8 font-medium">
-                  <option value="todos">Todos los Objetos</option>
-                  <option value="Bienes">Bienes</option>
-                  <option value="Servicios">Servicios</option>
-                  <option value="Obras">Obras</option>
-                </select>
-                <Chevron />
+              <div className="flex items-center justify-between">
+                <label htmlFor="f-tipo-objeto" className="field-label mb-1">Objeto Contractual</label>
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'SET_VIEW', view: 'config' })}
+                  className="text-[11px] font-semibold text-brand-600 hover:text-brand-700 hover:underline flex items-center gap-0.5"
+                  title="Configurar tipos habilitados para el cron"
+                >
+                  <Icon name="settings" className="h-3 w-3" /> Config
+                </button>
+              </div>
+              <div className="flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white p-1">
+                {[
+                  { id: 'todos', label: 'Todos' },
+                  { id: 'Servicios', label: 'Servicios' },
+                  { id: 'Bienes', label: 'Bienes' },
+                  { id: 'Obras', label: 'Obras' }
+                ].map((obj) => (
+                  <button
+                    key={obj.id}
+                    type="button"
+                    onClick={() => set('tipoObjeto', obj.id)}
+                    className={`h-7 flex-1 rounded-md text-xs font-bold transition-all ${
+                      f.tipoObjeto === obj.id
+                        ? 'bg-brand-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {obj.label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -96,15 +118,43 @@ export default function FilterBar() {
               </div>
             </div>
 
-            {/* Fecha de publicación (Hoy vs Todos) */}
+            {/* Fecha de publicación (Calendario por defecto Hoy) */}
             <div>
-              <label htmlFor="f-fecha" className="field-label">Fecha de Publicación</label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="f-fecha" className="field-label mb-1">Fecha de Publicación</label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => set('fecha', getTodayDateString())}
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold transition-colors ${
+                      f.fecha === getTodayDateString()
+                        ? 'bg-brand-100 text-brand-700'
+                        : 'text-slate-400 hover:bg-slate-200/60 hover:text-slate-600'
+                    }`}
+                  >
+                    Hoy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => set('fecha', 'todos')}
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-bold transition-colors ${
+                      f.fecha === 'todos'
+                        ? 'bg-brand-100 text-brand-700'
+                        : 'text-slate-400 hover:bg-slate-200/60 hover:text-slate-600'
+                    }`}
+                  >
+                    Todos
+                  </button>
+                </div>
+              </div>
               <div className="relative">
-                <select id="f-fecha" value={f.fecha || 'hoy'} onChange={(e) => set('fecha', e.target.value)} className="field appearance-none pr-8 font-medium">
-                  <option value="hoy">Publicados Hoy (Día actual)</option>
-                  <option value="todos">Todos los Registros</option>
-                </select>
-                <Chevron />
+                <input
+                  id="f-fecha"
+                  type="date"
+                  value={f.fecha === 'todos' ? '' : f.fecha}
+                  onChange={(e) => set('fecha', e.target.value || 'todos')}
+                  className="field h-9 text-xs font-semibold text-slate-700"
+                />
               </div>
             </div>
 
@@ -184,8 +234,8 @@ export default function FilterBar() {
 
           </div>
           <div className="mt-3 flex items-center justify-between border-t border-slate-200/60 pt-2 text-[11px] text-slate-400">
-            <span>Conectado en tiempo real a PostgreSQL (<span className="font-semibold text-slate-600">licitacionesELT</span>) vía FastAPI.</span>
-            <span>{convocatorias.length} procesos cargados</span>
+            <span>Base de datos oficial de contrataciones del Estado (SEACE / OECE)</span>
+            <span>{convocatorias.length} procesos vigentes</span>
           </div>
         </div>
       )}

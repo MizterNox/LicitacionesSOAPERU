@@ -85,7 +85,7 @@ export default function BiddingTable({ rows }) {
         <div className="flex items-center gap-2 text-[13px] text-slate-500">
           <span className="font-bold text-slate-900">Resultados</span>
           <span className="rounded-md bg-brand-50 px-1.5 py-0.5 text-xs font-bold text-brand-700">{rows.length}</span>
-          <span className="hidden text-xs sm:inline">convocatorias desde PostgreSQL</span>
+          <span className="hidden text-xs sm:inline">convocatorias disponibles</span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <div className="relative">
@@ -133,7 +133,7 @@ export default function BiddingTable({ rows }) {
                 <td colSpan={8} className="px-6 py-12 text-center text-slate-400">
                   <div className="flex flex-col items-center gap-2">
                     <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-                    <p className="text-xs font-semibold text-slate-500">Consultando base de datos PostgreSQL...</p>
+                    <p className="text-xs font-semibold text-slate-500">Cargando oportunidades del SEACE...</p>
                   </div>
                 </td>
               </tr>
@@ -148,7 +148,7 @@ export default function BiddingTable({ rows }) {
                     <span className="grid h-11 w-11 place-items-center rounded-full bg-slate-100 text-slate-400">
                       <Icon name="search" className="h-5 w-5" />
                     </span>
-                    <p className="mt-3 text-sm font-semibold text-slate-700">Sin resultados en PostgreSQL</p>
+                    <p className="mt-3 text-sm font-semibold text-slate-700">Sin resultados encontrados</p>
                     <p className="mt-1 text-xs text-slate-400">Ninguna convocatoria coincide con los filtros seleccionados.</p>
                     <button onClick={() => dispatch({ type: 'CLEAR_FILTERS' })} className="btn-ghost mt-3 h-8 px-3 text-xs">
                       Limpiar filtros
