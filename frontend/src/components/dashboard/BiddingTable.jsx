@@ -6,6 +6,7 @@ import { Icon } from '../ui/Icon.jsx'
 import { ScoreCell, ScoreRing, TypeBadge, StatusBadge, TipoObjetoBadge, RubroBadge } from './badges.jsx'
 import { ExportMenu } from './ExportMenu.jsx'
 import { fmtPEN, fmtDateShort, daysUntil } from '../../utils/format.js'
+import { TableRowSkeleton, MobileCardSkeleton } from '../ui/Skeleton.jsx'
 
 function DeadlineCell({ c }) {
   if (c.estado !== 'Vigente' || !c.fecha_limite) return <span className="text-xs text-slate-300">—</span>
@@ -206,11 +207,11 @@ export default function BiddingTable({ rows }) {
       {/* Vista Móvil: Tarjetas táctiles (< md) */}
       <div className="md:hidden">
         {state.isLoading ? (
-          <div className="px-4 py-12 text-center text-slate-400">
-            <div className="flex flex-col items-center gap-2">
-              <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-              <p className="text-xs font-semibold text-slate-500">Cargando oportunidades del SEACE...</p>
-            </div>
+          <div className="divide-y divide-slate-100">
+            <MobileCardSkeleton />
+            <MobileCardSkeleton />
+            <MobileCardSkeleton />
+            <MobileCardSkeleton />
           </div>
         ) : rows.length ? (
           <div className="divide-y divide-slate-100">
@@ -260,14 +261,13 @@ export default function BiddingTable({ rows }) {
           </thead>
           <tbody>
             {state.isLoading ? (
-              <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-slate-400">
-                  <div className="flex flex-col items-center gap-2">
-                    <span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-                    <p className="text-xs font-semibold text-slate-500">Cargando oportunidades del SEACE...</p>
-                  </div>
-                </td>
-              </tr>
+              <>
+                <TableRowSkeleton />
+                <TableRowSkeleton />
+                <TableRowSkeleton />
+                <TableRowSkeleton />
+                <TableRowSkeleton />
+              </>
             ) : rows.length ? (
               rows.map((c) => (
                 <DesktopRow

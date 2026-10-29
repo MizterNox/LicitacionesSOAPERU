@@ -1,6 +1,7 @@
 // Panel de detalle (split-screen) — renderizado con el registro completo del mock.
 
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useApp } from '../../store/AppState.jsx'
 import { Icon } from '../ui/Icon.jsx'
 import Timeline from './Timeline.jsx'
@@ -134,9 +135,18 @@ export default function DetailPanel({ bid }) {
               <span className="shrink-0">{bid.region}</span>
             </p>
           </div>
-          <button onClick={close} className="icon-btn h-8 w-8 shrink-0" title="Cerrar panel (Esc)">
-            <Icon name="x" className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <Link
+              to={`/licitaciones/${bid.ocid}`}
+              className="icon-btn h-8 w-8 text-slate-500 hover:text-brand-600 hover:bg-brand-50 transition-colors"
+              title="Abrir en página completa / enlace compartible"
+            >
+              <Icon name="external-link" className="h-4 w-4" />
+            </Link>
+            <button onClick={close} className="icon-btn h-8 w-8" title="Cerrar panel (Esc)">
+              <Icon name="x" className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Match IA */}

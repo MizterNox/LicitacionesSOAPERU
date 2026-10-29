@@ -1,27 +1,34 @@
-// Header superior: título + buscador global + notificaciones + perfil.
+// Header superior: título derivado de React Router + buscador global + notificaciones + perfil.
 // UrgentStrip: barra de plazos urgentes derivada de state.convocatorias.
 
 import { useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '../../store/AppState.jsx'
 import { useAuth } from '../../store/AuthContext.jsx'
 import { Icon } from '../ui/Icon.jsx'
 import { daysUntil, fmtDateShort } from '../../utils/format.js'
 import SearchBar from '../search/SearchBar.jsx'
 
-export const PAGE_TITLES = {
-  dashboard: 'Dashboard',
-  buscador: 'Buscador SEACE',
-  postulaciones: 'Mis Postulaciones',
-  analitica: 'Analítica de Competidores',
-  alertas: 'Alertas IA',
-  config: 'Configuración',
-}
-
 export default function Topbar() {
   const { state, dispatch } = useApp()
   const { user, openAuthModal, logout } = useAuth()
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  const getPageTitle = () => {
+    const p = location.pathname
+    if (p.startsWith('/menores')) return 'Contrataciones Menores (≤ 8 UIT)'
+    if (p.startsWith('/buscador')) return 'Buscador SEACE'
+    if (p.startsWith('/licitaciones/')) return 'Detalle de Licitación'
+    if (p.startsWith('/postulaciones')) return 'Mis Postulaciones'
+    if (p.startsWith('/analitica')) return 'Analítica de Competidores'
+    if (p.startsWith('/alertas')) return 'Centro de Alertas IA'
+    if (p.startsWith('/config')) return 'Configuración del Sistema'
+    return 'Dashboard General'
+  }
+
   const lastRun = state.cronStatus?.ultima_ejecucion
   const syncLabel = lastRun?.iniciado_en
     ? (() => {
@@ -58,10 +65,10 @@ export default function Topbar() {
       </button>
 
       <div className="min-w-0 leading-tight">
-        <h1 className="truncate text-[14px] font-bold text-slate-900">{PAGE_TITLES[state.view] ?? 'Dashboard'}</h1>
+        <h1 className="truncate text-[14px] font-bold text-slate-900">{getPageTitle()}</h1>
         <button
           type="button"
-          onClick={() => dispatch({ type: 'SET_VIEW', view: 'config' })}
+          onClick={() => navigate('/config')}
           className="mt-px hidden items-center gap-1.5 text-[11px] text-slate-500 hover:text-brand-600 transition-colors sm:flex text-left"
           title="Ver auditoría y detalles del cron en Configuración"
         >
@@ -85,7 +92,7 @@ export default function Topbar() {
           <Icon name="search" className="h-5 w-5" />
         </button>
         <button
-          onClick={() => dispatch({ type: 'SET_VIEW', view: 'alertas' })}
+          onClick={() => navigate('/alertas')}
           className="icon-btn relative"
           title="Ver Alertas IA"
         >
@@ -138,7 +145,7 @@ export default function Topbar() {
                     <button
                       onClick={() => {
                         setUserMenuOpen(false)
-                        dispatch({ type: 'SET_VIEW', view: 'alertas' })
+                        navigate('/alertas')
                       }}
                       className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
                     >
@@ -148,7 +155,7 @@ export default function Topbar() {
                     <button
                       onClick={() => {
                         setUserMenuOpen(false)
-                        dispatch({ type: 'SET_VIEW', view: 'config' })
+                        navigate('/config')
                       }}
                       className="flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
                     >
@@ -174,7 +181,7 @@ export default function Topbar() {
           </div>
         ) : (
           <button
-            onClick={openAuthModal}
+            onClick={() => openAuthModal('login')}
             className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-600 transition-colors"
           >
             <Icon name="user" className="h-3.5 w-3.5" />
@@ -189,6 +196,7 @@ export default function Topbar() {
 // Barra de plazos urgentes (calculada dinámicamente desde el backend)
 export function UrgentStrip() {
   const { state, dispatch } = useApp()
+  const navigate = useNavigate()
   const convocatorias = state.convocatorias || []
   const urgent = convocatorias.filter((c) => {
     if (c.estado !== 'Vigente' || !c.fecha_limite) return false
@@ -218,7 +226,10 @@ export function UrgentStrip() {
         )}
       </p>
       <button
-        onClick={() => dispatch({ type: 'VER_URGENTES' })}
+        onClick={() => {
+          dispatch({ type: 'SET_FILTER', key: 'plazo', value: '48h' })
+          navigate('/menores')
+        }}
         className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-2 py-1 font-bold text-amber-700 transition-colors hover:bg-amber-100"
       >
         Ver urgentes <Icon name="arrow-right" className="h-3 w-3" />

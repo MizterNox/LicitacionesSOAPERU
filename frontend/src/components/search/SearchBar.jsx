@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useApp } from '../../store/AppState.jsx'
 import { tendersApi } from '../../lib/api.js'
 import { useDebounce } from '../../hooks/useDebounce.js'
@@ -6,6 +7,7 @@ import { Icon } from '../ui/Icon.jsx'
 
 export default function SearchBar({ className = '' }) {
   const { state, dispatch } = useApp()
+  const navigate = useNavigate()
   const [inputValue, setInputValue] = useState(state.query || '')
   const [suggestions, setSuggestions] = useState([])
   const [isOpen, setIsOpen] = useState(false)
@@ -90,6 +92,7 @@ export default function SearchBar({ className = '' }) {
       commitSearch(sugg.texto)
       if (sugg.ocid) {
         dispatch({ type: 'SELECT_BID', id: sugg.ocid })
+        navigate(`/licitaciones/${sugg.ocid}`)
       }
     }
     setIsOpen(false)

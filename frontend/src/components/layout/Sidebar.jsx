@@ -1,6 +1,7 @@
-// Sidebar de navegación (superficie oscura "ink").
-// Colapsable en desktop, off-canvas con backdrop en mobile.
+// Sidebar de navegación profesional (superficie oscura "ink").
+// Soporte para React Router (NavLink) y acceso prioritario al nicho de Contrataciones Menores.
 
+import { NavLink } from 'react-router-dom'
 import { useApp } from '../../store/AppState.jsx'
 import { useAuth } from '../../store/AuthContext.jsx'
 import { Icon, LogoMark } from '../ui/Icon.jsx'
@@ -8,56 +9,70 @@ import { Icon, LogoMark } from '../ui/Icon.jsx'
 const NAV = [
   {
     section: 'Principal',
-    items: [{ id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' }],
+    items: [
+      { path: '/dashboard', label: 'Dashboard', icon: 'layout-dashboard' }
+    ],
   },
   {
     section: 'Operaciones',
     items: [
-      { id: 'buscador', label: 'Buscador SEACE', icon: 'search', badge: '128' },
-      { id: 'postulaciones', label: 'Mis Postulaciones', icon: 'kanban', badge: '12' },
-      { id: 'analitica', label: 'Analítica de Competidores', icon: 'chart' },
+      { path: '/menores', label: 'Contrataciones Menores', icon: 'zap', badge: '≤ 8 UIT', highlight: true },
+      { path: '/buscador', label: 'Buscador SEACE', icon: 'search' },
+      { path: '/postulaciones', label: 'Mis Postulaciones', icon: 'kanban' },
+      { path: '/analitica', label: 'Analítica de Competidores', icon: 'chart' },
     ],
   },
   {
     section: 'Inteligencia',
-    items: [{ id: 'alertas', label: 'Alertas IA', icon: 'bell', badge: '3', live: true }],
+    items: [{ path: '/alertas', label: 'Alertas IA', icon: 'bell', badge: 'IA', live: true }],
   },
   {
     section: 'Sistema',
-    items: [{ id: 'config', label: 'Configuración', icon: 'settings' }],
+    items: [{ path: '/config', label: 'Configuración', icon: 'settings' }],
   },
 ]
 
-function NavItem({ it, active, collapsed }) {
+function NavItem({ it, collapsed }) {
   const { dispatch } = useApp()
   return (
-    <a
-      href="#"
+    <NavLink
+      to={it.path}
       title={it.label}
-      onClick={(e) => {
-        e.preventDefault()
-        dispatch({ type: 'SET_VIEW', view: it.id })
-      }}
-      className={`group relative flex h-9 items-center gap-3 rounded-lg text-[13px] font-semibold transition-colors ${
-        collapsed ? 'justify-center px-0' : 'px-3'
-      } ${active ? 'bg-brand-500/15 text-white' : 'text-ink-300 hover:bg-white/[0.06] hover:text-white'}`}
+      onClick={() => dispatch({ type: 'CLOSE_MOBILE_NAV' })}
+      className={({ isActive }) =>
+        `group relative flex h-9 items-center gap-3 rounded-lg text-[13px] font-semibold transition-colors ${
+          collapsed ? 'justify-center px-0' : 'px-3'
+        } ${
+          isActive
+            ? 'bg-brand-500/20 text-white font-bold'
+            : 'text-ink-300 hover:bg-white/[0.06] hover:text-white'
+        }`
+      }
     >
-      {active && <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400"></span>}
-      <span className={active ? 'text-brand-300' : 'text-ink-400 transition-colors group-hover:text-ink-100'}>
-        <Icon name={it.icon} className="h-[18px] w-[18px] shrink-0" />
-      </span>
-      <span className={`min-w-0 flex-1 truncate ${collapsed ? 'hidden' : ''}`}>{it.label}</span>
-      {it.badge && !collapsed && (
-        <span
-          className={`ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] font-bold ${
-            it.live ? 'bg-red-500/15 text-red-300' : 'bg-white/10 text-ink-200'
-          }`}
-        >
-          {it.badge}
-        </span>
+      {({ isActive }) => (
+        <>
+          {isActive && <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400"></span>}
+          <span className={isActive ? 'text-brand-300' : 'text-ink-400 transition-colors group-hover:text-ink-100'}>
+            <Icon name={it.icon} className="h-[18px] w-[18px] shrink-0" />
+          </span>
+          <span className={`min-w-0 flex-1 truncate ${collapsed ? 'hidden' : ''}`}>{it.label}</span>
+          {it.badge && !collapsed && (
+            <span
+              className={`ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] font-bold ${
+                it.highlight
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  : it.live
+                  ? 'bg-red-500/15 text-red-300'
+                  : 'bg-white/10 text-ink-200'
+              }`}
+            >
+              {it.badge}
+            </span>
+          )}
+          {it.badge && collapsed && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-brand-400"></span>}
+        </>
       )}
-      {it.badge && collapsed && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-brand-400"></span>}
-    </a>
+    </NavLink>
   )
 }
 
@@ -98,7 +113,7 @@ export default function Sidebar() {
             </p>
             <div className="space-y-0.5">
               {sec.items.map((it) => (
-                <NavItem key={it.id} it={it} active={state.view === it.id} collapsed={c} />
+                <NavItem key={it.path} it={it} collapsed={c} />
               ))}
             </div>
           </div>
@@ -110,18 +125,17 @@ export default function Sidebar() {
         <div className="relative overflow-hidden rounded-xl border border-brand-500/25 bg-gradient-to-br from-brand-950/60 to-ink-900 p-3.5">
           <div className="pointer-events-none absolute -right-6 -top-8 h-20 w-20 rounded-full bg-brand-500/25 blur-2xl"></div>
           <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-brand-300">
-            <Icon name="sparkles" className="h-3 w-3" /> Radar IA
+            <Icon name="zap" className="h-3 w-3 text-emerald-400" /> Oportunidades Menores
           </p>
           <p className="mt-2 text-xs leading-relaxed text-ink-200">
-            <span className="font-bold text-white">3 oportunidades críticas</span> cierran en menos de 48 h y cumplen tus
-            criterios.
+            Procesos directos de hasta <span className="font-bold text-white">S/ 42,800</span> con cotización rápida.
           </p>
-          <button
-            onClick={() => dispatch({ type: 'SET_VIEW', view: 'alertas' })}
-            className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-brand-300 transition-colors hover:text-brand-200"
+          <NavLink
+            to="/menores"
+            className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-emerald-300 transition-colors hover:text-emerald-200"
           >
-            Ver análisis <Icon name="arrow-right" className="h-3 w-3" />
-          </button>
+            Explorar menores <Icon name="arrow-right" className="h-3 w-3" />
+          </NavLink>
         </div>
 
         {user ? (
