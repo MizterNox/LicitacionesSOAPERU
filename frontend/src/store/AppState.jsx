@@ -21,7 +21,8 @@ export const DEFAULT_FILTERS = {
   valorMin: '',
   valorMax: '',
   plazo: 'todas', // 'todas' | '48h' | '7d' | '30d'
-  fecha: getTodayDateString(), // Fecha de hoy por defecto (YYYY-MM-DD)
+  fecha: 'todos', // 'todos' por defecto para mostrar las convocatorias de la base de datos
+  soloMenores: false, // True = filtra estrictamente licitaciones <= 8 UIT (S/ 42,800)
 }
 
 const initialState = {
@@ -81,6 +82,8 @@ function reducer(state, action) {
       return { ...state, sort: action.sort }
     case 'SET_FILTER':
       return { ...state, filters: { ...state.filters, [action.key]: action.value } }
+    case 'TOGGLE_SOLO_MENORES':
+      return { ...state, filters: { ...state.filters, soloMenores: !state.filters.soloMenores } }
     case 'CLEAR_FILTERS':
       return { ...state, query: '', filters: { ...DEFAULT_FILTERS } }
     case 'VER_URGENTES':

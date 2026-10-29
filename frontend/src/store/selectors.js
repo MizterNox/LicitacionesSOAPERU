@@ -9,6 +9,7 @@ export function selectVisible(state) {
   const listData = state.convocatorias || []
 
   let list = listData.filter((c) => {
+    if (f.soloMenores && !c.es_menor_cuantia) return false
     if (f.tipo !== 'Todos' && c.tipo_proceso !== f.tipo) return false
     if (f.entidad !== 'todas' && c.entidad !== f.entidad) return false
     if (f.region !== 'todas' && c.region !== f.region) return false

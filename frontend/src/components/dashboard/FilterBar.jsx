@@ -38,6 +38,7 @@ export default function FilterBar() {
   }, [convocatorias])
 
   const active =
+    (f.soloMenores ? 1 : 0) +
     (f.tipo !== 'Todos' ? 1 : 0) +
     (f.entidad !== 'todas' ? 1 : 0) +
     (f.region !== 'todas' ? 1 : 0) +
@@ -51,9 +52,72 @@ export default function FilterBar() {
 
   return (
     <section className="card overflow-hidden" aria-label="Filtros de búsqueda">
+      {/* Barra de Acceso Rápido y Nicho Menor Cuantía */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-white px-4 py-2 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="font-bold text-slate-500 mr-1 hidden sm:inline">Accesos Rápidos:</span>
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'TOGGLE_SOLO_MENORES' })}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition-all shadow-xs border ${
+              f.soloMenores
+                ? 'border-emerald-600 bg-emerald-600 text-white shadow-emerald-500/20'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+            }`}
+            title="Filtrar oportunidades de menor cuantía (≤ 8 UIT / S/ 42,800)"
+          >
+            <Icon name="zap" className={`h-3.5 w-3.5 ${f.soloMenores ? 'text-white' : 'text-emerald-600'}`} />
+            <span>⚡ Menor Cuantía (≤ 8 UIT)</span>
+            {f.soloMenores && <span className="ml-0.5 rounded-full bg-white/20 px-1 text-[10px]">Activo</span>}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => set('plazo', f.plazo === '48h' ? 'todas' : '48h')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition-all shadow-xs border ${
+              f.plazo === '48h'
+                ? 'border-red-600 bg-red-600 text-white'
+                : 'border-red-200 bg-red-50 text-red-800 hover:bg-red-100'
+            }`}
+            title="Convocatorias que cierran en menos de 48 horas"
+          >
+            <Icon name="clock" className={`h-3.5 w-3.5 ${f.plazo === '48h' ? 'text-white' : 'text-red-600'}`} />
+            <span>Cierran ≤ 48h</span>
+          </button>
+
+          <div className="h-4 w-px bg-slate-200 mx-1 hidden sm:block" />
+
+          {/* Quick toggle categoría objeto */}
+          <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[11px] font-semibold">
+            {['todos', 'Servicios', 'Bienes', 'Obras'].map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => set('tipoObjeto', cat)}
+                className={`rounded px-2 py-0.5 transition-colors ${
+                  f.tipoObjeto === cat
+                    ? 'bg-white text-brand-700 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {cat === 'todos' ? 'Todos' : cat}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {f.soloMenores && (
+            <span className="inline-flex items-center text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium">
+              Tope legal: S/ 42,800 PEN
+            </span>
+          )}
+        </div>
+      </div>
+
       <div className="flex items-center gap-3 px-4 py-2.5">
         <span className="flex items-center gap-2 text-[13px] font-bold text-slate-700">
-          <Icon name="sliders" className="h-4 w-4 text-brand-600" /> Filtros
+          <Icon name="sliders" className="h-4 w-4 text-brand-600" /> Filtros Avanzados
           {active ? <span className="chip bg-brand-50 text-brand-700">{active} activo{active > 1 ? 's' : ''}</span> : null}
           {state.isLoading && <span className="text-xs text-brand-600 animate-pulse font-medium">· Actualizando convocatorias...</span>}
         </span>

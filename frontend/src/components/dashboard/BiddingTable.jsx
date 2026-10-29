@@ -44,9 +44,14 @@ function DesktopRow({ c, selected, onSelect }) {
         <ScoreCell p={c.match_score} />
       </td>
       <td className="px-3 py-3">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <span className="font-mono text-xs font-bold tracking-tight text-slate-700">{c.codigo_seace}</span>
           <TypeBadge tipo={c.tipo_proceso} />
+          {c.es_menor_cuantia && (
+            <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200" title="Contratación Menor a 8 UIT">
+              <Icon name="zap" className="h-2.5 w-2.5 text-emerald-600" /> ≤ 8 UIT
+            </span>
+          )}
         </div>
       </td>
       <td className="px-3 py-3">
@@ -58,9 +63,19 @@ function DesktopRow({ c, selected, onSelect }) {
       </td>
       <td className="px-3 py-3">
         <p className="line-clamp-2 max-w-[420px] text-[13px] leading-snug text-slate-700">{c.objeto}</p>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <TipoObjetoBadge tipo={c.tipo_objeto} />
           {c.rubro && <RubroBadge rubro={c.rubro} />}
+          {c.cui && (
+            <span className="font-mono text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+              CUI {c.cui}
+            </span>
+          )}
+          {c.items && c.items.length > 0 && (
+            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+              {c.items.length} {c.items.length === 1 ? 'ítem' : 'ítems'}
+            </span>
+          )}
         </div>
       </td>
       <td className="px-3 py-3 text-right">
@@ -96,10 +111,15 @@ function MobileCard({ c, selected, onSelect }) {
     >
       {/* Cabecera: Score + Código + Tipo + Estado */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
           <ScoreRing p={c.match_score} className="h-7 w-7 flex-shrink-0" />
           <span className="font-mono text-xs font-bold text-slate-800 truncate">{c.codigo_seace}</span>
           <TypeBadge tipo={c.tipo_proceso} />
+          {c.es_menor_cuantia && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+              <Icon name="zap" className="h-2.5 w-2.5 text-emerald-600" /> ≤ 8 UIT
+            </span>
+          )}
         </div>
         <StatusBadge estado={c.estado} />
       </div>
@@ -122,6 +142,16 @@ function MobileCard({ c, selected, onSelect }) {
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <TipoObjetoBadge tipo={c.tipo_objeto} />
         {c.rubro && <RubroBadge rubro={c.rubro} />}
+        {c.cui && (
+          <span className="font-mono text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+            CUI {c.cui}
+          </span>
+        )}
+        {c.items && c.items.length > 0 && (
+          <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+            {c.items.length} {c.items.length === 1 ? 'ítem' : 'ítems'}
+          </span>
+        )}
       </div>
 
       {/* Fila inferior: Valor y Plazo */}

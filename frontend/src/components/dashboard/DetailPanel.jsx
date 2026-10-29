@@ -158,12 +158,59 @@ export default function DetailPanel({ bid }) {
 
       {/* Cuerpo scrolleable */}
       <div className="min-h-0 flex-1 overflow-y-auto scroll-thin">
-        <dl className="mx-5 mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
+        {/* Card Menor Cuantía */}
+        {bid.es_menor_cuantia && (
+          <div className="mx-5 mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-900">
+            <div className="flex items-center gap-2 font-bold text-emerald-800">
+              <Icon name="zap" className="h-4 w-4 text-emerald-600" />
+              <span>Oportunidad de Menor Cuantía (≤ 8 UIT / S/ 42,800)</span>
+            </div>
+            <p className="mt-1 leading-relaxed text-emerald-700">
+              Proceso ágil con plazos cortos de cotización. Ideal para adjudicación directa o simplificada sin requisitos de licitación pesada.
+            </p>
+          </div>
+        )}
+
+        <dl className="mx-5 mt-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200">
           <Meta label="Valor estimado" value={bid.valor_estimado != null ? fmtPEN(bid.valor_estimado) : 'No disponible'} />
-          <Meta label="Modalidad" value={bid.modalidad} />
-          <Meta label="CUI del órgano" value={bid.cui} />
+          <Meta label="Tipo / Modalidad" value={`${bid.tipo_proceso || bid.modalidad} · ${bid.tipo_objeto || 'Servicios'}`} />
+          <Meta label="CUI / Código SEACE" value={bid.cui || bid.codigo_seace || 'Sin CUI'} />
           <Meta label="Publicación" value={fmtDate(bid.fecha_publicacion)} />
         </dl>
+
+        {/* Ítems y Requerimientos Normalizados OCDS */}
+        {bid.items && bid.items.length > 0 && (
+          <section className="px-5 pt-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[13px] font-bold text-slate-900">
+                Ítems de Contratación ({bid.items.length})
+              </h3>
+              <span className="text-[11px] font-medium text-slate-400">CUBSO / Cantidades</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {bid.items.map((it, idx) => (
+                <div key={it.id || idx} className="rounded-xl border border-slate-200 bg-white p-3 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-semibold text-slate-800 leading-snug">{it.descripcion || `Ítem #${idx + 1}`}</span>
+                    {it.codigo_cubso && (
+                      <span className="shrink-0 font-mono text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200" title="Código CUBSO">
+                        CUBSO {it.codigo_cubso}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-500">
+                    {it.cantidad != null && (
+                      <span><strong>Cantidad:</strong> {it.cantidad} {it.unidad || 'UND'}</span>
+                    )}
+                    {it.estado && (
+                      <span><strong>Estado:</strong> {it.estado}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Línea de tiempo */}
         <section className="px-5 pt-6">
@@ -194,28 +241,35 @@ export default function DetailPanel({ bid }) {
         {/* Documentos */}
         <section className="px-5 pt-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-[13px] font-bold text-slate-900">Documentos clave</h3>
-            <button className="text-[11px] font-bold text-brand-600 transition-colors hover:text-brand-500">Ver todos</button>
+            <h3 className="text-[13px] font-bold text-slate-900">Documentos oficiales</h3>
+            <span className="text-[11px] text-slate-400 font-medium">{bid.documentos?.length || 0} disponibles</span>
           </div>
           <ul className="mt-3 space-y-2">
-            {(bid.documentos || []).map((d) => (
-              <li key={d.nombre} className="group flex items-center gap-3 rounded-xl border border-slate-200 p-2.5 transition-colors hover:border-brand-300 hover:bg-brand-50/40">
+            {(bid.documentos || []).map((d, dIdx) => (
+              <li key={d.id || d.nombre || dIdx} className="group flex items-center gap-3 rounded-xl border border-slate-200 p-2.5 transition-colors hover:border-brand-300 hover:bg-brand-50/40">
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-500">
                   <Icon name="file-text" className="h-4 w-4" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] font-semibold text-slate-800">{d.nombre}</p>
                   <p className="text-[11px] text-slate-400">
-                    {d.formato} · {d.tamano} · upd. {d.actualizado}
+                    {d.formato || 'PDF'} {d.actualizado ? `· Act. ${d.actualizado}` : ''}
                   </p>
                 </div>
-                <div className="flex shrink-0 gap-0.5 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
-                  <button className="icon-btn h-8 w-8" title="Vista previa">
-                    <Icon name="eye" className="h-4 w-4" />
-                  </button>
-                  <button className="icon-btn h-8 w-8" title="Descargar">
-                    <Icon name="download" className="h-4 w-4" />
-                  </button>
+                <div className="flex shrink-0 gap-1">
+                  {d.url ? (
+                    <a
+                      href={d.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary h-8 px-2 text-xs flex items-center gap-1"
+                      title="Abrir documento oficial"
+                    >
+                      <Icon name="download" className="h-3.5 w-3.5" /> Ver
+                    </a>
+                  ) : (
+                    <span className="text-[10px] text-slate-400 italic">En SEACE</span>
+                  )}
                 </div>
               </li>
             ))}
@@ -227,11 +281,11 @@ export default function DetailPanel({ bid }) {
           <div className="relative overflow-hidden rounded-xl bg-ink-950 p-4">
             <div className="pointer-events-none absolute -right-10 -top-10 h-28 w-28 rounded-full bg-brand-500/25 blur-2xl"></div>
             <h3 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-brand-300">
-              <Icon name="sparkles" className="h-3.5 w-3.5" /> ¿Por qué te sugerimos esta licitación?
+              <Icon name="sparkles" className="h-3.5 w-3.5" /> Análisis IA de Oportunidad
             </h3>
             <ul className="mt-3 space-y-2">
-              {(bid.motivos_ia || []).map((r) => (
-                <li key={r} className="flex gap-2 text-xs leading-relaxed text-ink-200">
+              {(bid.motivos_ia || []).map((r, mIdx) => (
+                <li key={mIdx} className="flex gap-2 text-xs leading-relaxed text-ink-200">
                   <span className="mt-0.5 shrink-0 text-emerald-400">
                     <Icon name="check" className="h-3.5 w-3.5" />
                   </span>
@@ -249,12 +303,25 @@ export default function DetailPanel({ bid }) {
 
       {/* Footer sticky */}
       <div className="flex shrink-0 gap-2.5 border-t border-slate-200 bg-white px-5 py-3.5">
-        <button className="btn-primary flex-1">
-          <Icon name="download" className="h-4 w-4" /> Descargar bases
-        </button>
-        <button className="btn-secondary flex-1">
-          <Icon name="gavel" className="h-4 w-4" /> Postular
-        </button>
+        <a
+          href={
+            bid.documentos?.find((d) => d.url)?.url ||
+            'https://prodapp2.seace.gob.pe/seacebus-uiwd-pub/buscadorConvocatorias/buscadorConvocatorias.xhtml'
+          }
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-primary flex-1 justify-center"
+        >
+          <Icon name="download" className="h-4 w-4" /> Bases Oficiales
+        </a>
+        <a
+          href="https://prodapp2.seace.gob.pe/seacebus-uiwd-pub/buscadorConvocatorias/buscadorConvocatorias.xhtml"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-secondary flex-1 justify-center"
+        >
+          <Icon name="gavel" className="h-4 w-4" /> Ver en SEACE
+        </a>
       </div>
     </aside>
   )

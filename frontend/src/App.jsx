@@ -138,7 +138,7 @@ export default function App() {
   // HOOK REACTIVO: Consume dinámicamente @app.get('/api/licitaciones')
   // =========================================================================
   useEffect(() => {
-    let isMounted = true
+    const controller = new AbortController()
     const fetchLicitaciones = async () => {
       dispatch({ type: 'SET_LOADING', payload: true })
       try {
@@ -151,7 +151,7 @@ export default function App() {
           params.append('vigentes', 'false')
         }
 
-        // 2. Mapeo de tipo (Bienes, Servicios, Obras, todos)
+        // 2. Mapeo de tipo objeto (Bienes, Servicios, Obras, todos)
         if (filters.tipoObjeto && filters.tipoObjeto !== 'todos') {
           params.append('tipo', filters.tipoObjeto)
         } else {
@@ -163,36 +163,86 @@ export default function App() {
           params.append('rubro', filters.rubro)
         }
 
-        // 4. Mapeo de fecha ('hoy' por defecto o 'todos')
+        // 4. Región geográfica
+        if (filters.region && filters.region !== 'todas') {
+          params.append('region', filters.region)
+        }
+
+        // 5. Entidad compradora
+        if (filters.entidad && filters.entidad !== 'todas') {
+          params.append('entidad', filters.entidad)
+        }
+
+        // 6. Tipo de proceso (LP, CP, AS, MC, etc.)
+        if (filters.tipo && filters.tipo !== 'Todos') {
+          params.append('tipo_proceso', filters.tipo)
+        }
+
+        // 7. Contrataciones menores (<= 8 UIT)
+        if (filters.soloMenores) {
+          params.append('solo_menores', 'true')
+        }
+
+        // 8. Plazo urgente
+        if (filters.plazo && filters.plazo !== 'todas') {
+          params.append('plazo', filters.plazo)
+        }
+
+        // 9. Rango de montos
+        if (filters.valorMin) {
+          params.append('monto_min', filters.valorMin)
+        }
+        if (filters.valorMax) {
+          params.append('monto_max', filters.valorMax)
+        }
+
+        // 10. Mapeo de fecha ('todos' o YYYY-MM-DD)
         params.append('fecha', filters.fecha || 'todos')
 
-        // 5. Búsqueda por texto (Full-Text Search) si existe
+        // 11. Búsqueda Full-Text Search
         if (query && query.trim()) {
           params.append('q', query.trim())
         }
 
+        // 12. Ordenamiento
+        if (state.sort) {
+          params.append('sort', state.sort)
+        }
+
         const url = `${API_BASE_URL}/api/licitaciones?${params.toString()}`
-        const res = await fetch(url)
+        const res = await fetch(url, { signal: controller.signal })
         if (!res.ok) throw new Error(`HTTP Error ${res.status}`)
         const data = await res.json()
 
-        if (isMounted) {
-          const items = Array.isArray(data) ? data : (data.convocatorias || [])
-          dispatch({ type: 'SET_CONVOCATORIAS', payload: items })
-        }
+        const items = Array.isArray(data) ? data : (data.convocatorias || [])
+        dispatch({ type: 'SET_CONVOCATORIAS', payload: items })
       } catch (err) {
+        if (err.name === 'AbortError') return
         console.error('Error al consultar /api/licitaciones desde FastAPI:', err)
-        if (isMounted) {
-          dispatch({ type: 'SET_ERROR', payload: err.message })
-        }
+        dispatch({ type: 'SET_ERROR', payload: err.message })
       }
     }
 
     fetchLicitaciones()
     return () => {
-      isMounted = false
+      controller.abort()
     }
-  }, [filters.estado, filters.tipoObjeto, filters.rubro, filters.fecha, query, dispatch])
+  }, [
+    filters.estado,
+    filters.tipoObjeto,
+    filters.rubro,
+    filters.region,
+    filters.entidad,
+    filters.tipo,
+    filters.soloMenores,
+    filters.plazo,
+    filters.valorMin,
+    filters.valorMax,
+    filters.fecha,
+    query,
+    state.sort,
+    dispatch
+  ])
 
   useEffect(() => {
     const onKey = (e) => {
