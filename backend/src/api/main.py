@@ -45,7 +45,7 @@ from config import settings
 
 API_URL = settings.API_URL
 
-DEFAULT_TIPOS = ["Servicios", "Bienes", "Obras"]
+DEFAULT_TIPOS = ["Servicios"]
 
 # Lock asíncrono para evitar ejecuciones concurrentes del pipeline ETL
 _etl_lock = asyncio.Lock()
@@ -627,6 +627,34 @@ async def get_licitacion_by_ocid(ocid: str):
         documentos = extract_documents_normalized(raw)
         items = extract_items_normalized(raw)
 
+        hitos = [
+            {"nombre": "Convocatoria publicada", "fecha": f_pub},
+            {"nombre": "Formulación de consultas", "fecha": f_pub},
+            {"nombre": "Presentación de ofertas", "fecha": f_limite or f_pub},
+            {"nombre": "Apertura de ofertas", "fecha": f_limite or f_pub}
+        ]
+
+        motivos_ia = [
+            f"Proceso de {t.objeto_contratacion} registrado en SEACE",
+            f"Entidad compradora: {entidad}",
+            f"Monto estimado de S/ {float(t.monto_estimado or 0):,.2f}"
+        ]
+        if es_menor:
+            motivos_ia.insert(0, "Contratación de Menor Cuantía (≤ 8 UIT)")
+        if t.rubro:
+            motivos_ia.insert(0, f"Rubro identificado por IA: {t.rubro}")
+
+        base_score = 70
+        if t.rubro_confianza:
+            base_score += int(float(t.rubro_confianza) * 15)
+        if t.monto_estimado and t.monto_estimado > 0:
+            base_score += 5
+        if f_limite:
+            base_score += 5
+        if es_menor:
+            base_score += 5
+        match_score = min(100, max(50, base_score))
+
         return {
             "id": t.ocid,
             "ocid": t.ocid,
@@ -634,8 +662,8 @@ async def get_licitacion_by_ocid(ocid: str):
             "entidad": entidad,
             "entidad_ruc": t.entidad_ruc or "",
             "objeto": desc_text,
-            "descripcion_limpia": t.descripcion_limpia,
-            "descripcion_original": t.descripcion,
+            "descripcion_limpia": t.descripcion_limpia or desc_text,
+            "descripcion_original": t.descripcion or t.titulo or "",
             "rubro": t.rubro or "Servicios Generales",
             "rubro_confianza": float(t.rubro_confianza) if t.rubro_confianza is not None else None,
             "palabras_clave": t.palabras_clave or [],
@@ -647,11 +675,16 @@ async def get_licitacion_by_ocid(ocid: str):
             "valor_estimado": float(t.monto_estimado) if t.monto_estimado is not None else 0.0,
             "moneda": t.moneda or "PEN",
             "region": region_val,
+            "modalidad": t.titulo.split("-")[0] if t.titulo else "CP",
             "tipo_proceso": proc_tipo,
             "es_menor_cuantia": es_menor,
             "cui": t.cui or t.id_proceso or "",
+            "match_score": match_score,
+            "fase_actual": 2,
+            "hitos": hitos,
             "documentos": documentos,
             "items": items,
+            "motivos_ia": motivos_ia,
             "raw_payload": raw
         }
 
