@@ -84,7 +84,8 @@ async def register(payload: UserRegisterRequest, response: Response):
             )
 
         hashed = hash_password(payload.password)
-        user_rol = payload.rol if payload.rol in ["user", "admin"] else "user"
+        # Seguridad: registro público siempre asigna rol 'user' para prevenir escalación de privilegios
+        user_rol = "user"
 
         new_user = UserModel(
             email=clean_email,

@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     # API OECE (Contrataciones Abiertas de Perú)
     API_URL: str = "https://contratacionesabiertas.oece.gob.pe/api/v1/releases"
 
+    # Parámetros de Negocio: Contrataciones Menores (Perú - UIT)
+    UIT_VALOR_PEN: float = 5350.0
+    TOPE_MENOR_CUANTIA_UIT: int = 8
+    TOPE_MENOR_CUANTIA_PEN: float = 42800.0  # 8 UIT (5350 * 8)
+
     # Servidor Web FastAPI
     HOST: str = "0.0.0.0"
     PORT: int = 8000

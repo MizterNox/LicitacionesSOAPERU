@@ -1,5 +1,6 @@
 import sys
 import os
+import asyncio
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -27,6 +28,15 @@ from etl.loader import ELTOrchestrator
 from services.search import TenderFilters, build_search_query, get_search_suggestions
 from services.ai_enricher import RUBROS_VALIDOS
 from services.alert_matcher import run_alert_matching
+from schemas.ocds_schema import (
+    extract_entidad_info,
+    extract_region_info,
+    extract_tipo_proceso_real,
+    extract_fecha_limite_real,
+    extract_items_normalized,
+    extract_documents_normalized,
+    is_menor_cuantia,
+)
 from api.routers.export import router as export_router
 from api.routers.metrics import router as metrics_router
 from api.routers.auth import router as auth_router
@@ -36,6 +46,9 @@ from config import settings
 API_URL = settings.API_URL
 
 DEFAULT_TIPOS = ["Servicios", "Bienes", "Obras"]
+
+# Lock asíncrono para evitar ejecuciones concurrentes del pipeline ETL
+_etl_lock = asyncio.Lock()
 
 async def get_active_tipos() -> List[str]:
     """Obtiene la lista de tipos de licitación configurados por el usuario."""
@@ -78,115 +91,120 @@ scheduler = AsyncIOScheduler()
 async def job_etl_programado():
     """Tarea ejecutada automáticamente por el programador APScheduler de forma dinámica."""
     global ultimo_estado_etl
-    now = datetime.now()
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    hoy_str = datetime.now().strftime("%Y-%m-%d")
-    print(f"\n=======================================================")
-    print(f"[SCHEDULER] ¡Ejecución automática del ETL iniciada! ({now_str})")
-    print(f"=======================================================")
+    if _etl_lock.locked():
+        print("[SCHEDULER] ETL ya en ejecución por otra tarea, se omite este ciclo.")
+        return
 
-    tipos_a_ejecutar = await get_active_tipos()
-    print(f"[SCHEDULER] Tipos configurados activos: {tipos_a_ejecutar}")
+    async with _etl_lock:
+        now = datetime.now()
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        hoy_str = datetime.now().strftime("%Y-%m-%d")
+        print(f"\n=======================================================")
+        print(f"[SCHEDULER] ¡Ejecución automática del ETL iniciada! ({now_str})")
+        print(f"=======================================================")
 
-    cron_entry_id = None
-    try:
-        async with AsyncSessionLocal() as session:
-            async with session.begin():
-                entry = CronExecutionModel(
-                    iniciado_en=now,
-                    tipo_ejecucion="AUTOMATICO",
-                    estado="RUNNING",
-                    objetos_procesados=tipos_a_ejecutar
-                )
-                session.add(entry)
-                await session.flush()
-                cron_entry_id = entry.id
-    except Exception as e_log:
-        print(f"[SCHEDULER] Error al registrar inicio de cron: {e_log}")
+        tipos_a_ejecutar = await get_active_tipos()
+        print(f"[SCHEDULER] Tipos configurados activos: {tipos_a_ejecutar}")
 
-    ultimo_estado_etl["status"] = "running"
-    ultimo_estado_etl["ultima_ejecucion"] = datetime.now().isoformat()
-    ultimo_estado_etl["error"] = None
-
-    extractor = OCESCExtractor(API_URL)
-    orchestrator = ELTOrchestrator(extractor)
-
-    total_extraidos_gen = 0
-    total_guardados_gen = 0
-    total_ignorados_gen = 0
-    nuevos_ocids_gen = []
-    detalles_por_tipo = {}
-    error_str = None
-
-    try:
-        for obj in tipos_a_ejecutar:
-            try:
-                print(f"[SCHEDULER] Extrayendo {obj} con fecha_desde={hoy_str}...")
-                res = await orchestrator.run_pipeline(
-                    objeto=obj,
-                    estado="Vigente",
-                    fecha_desde=hoy_str,
-                    max_pages=2
-                )
-                ext = res.get("total_extraidos", 0)
-                guardados = res.get("total_guardados_db", 0)
-                ignorados = res.get("total_ignorados", 0)
-                nuevos_tipo = res.get("nuevos_ocids", [])
-                nuevos_ocids_gen.extend(nuevos_tipo)
-                total_extraidos_gen += ext
-                total_guardados_gen += guardados
-                total_ignorados_gen += ignorados
-                detalles_por_tipo[obj] = res
-                print(f"[SCHEDULER] -> {obj}: {guardados} persistidos/actualizados ({len(nuevos_tipo)} nuevos), {ignorados} no sobreescritos")
-            except Exception as e_obj:
-                print(f"[SCHEDULER] Error al procesar {obj}: {e_obj}")
-                detalles_por_tipo[obj] = {"error": str(e_obj)}
-
-        # Cruce automático de alertas para las convocatorias nuevas
-        alertas_resultado = None
-        if nuevos_ocids_gen:
-            print(f"[SCHEDULER] Ejecutando cruce de alertas para {len(nuevos_ocids_gen)} nuevas convocatorias...")
-            try:
-                alertas_resultado = await run_alert_matching(nuevos_ocids=nuevos_ocids_gen)
-                detalles_por_tipo["alertas"] = alertas_resultado
-                print(f"[SCHEDULER] Cruce de alertas finalizado: {alertas_resultado.get('total_coincidencias', 0)} coincidencias, {alertas_resultado.get('alertas_registradas', 0)} registradas.")
-            except Exception as e_alert:
-                print(f"[SCHEDULER WARN] Error en cruce de alertas: {e_alert}")
-                detalles_por_tipo["alertas"] = {"error": str(e_alert)}
-
-        estado_final = "COMPLETED"
-        ultimo_estado_etl["status"] = "completed"
-        ultimo_estado_etl["resultado"] = {
-            "mensaje": f"ETL automático finalizado. Total guardados: {total_guardados_gen}, No sobreescritos: {total_ignorados_gen}",
-            "fecha": hoy_str,
-            "tipos": tipos_a_ejecutar,
-            "alertas": alertas_resultado
-        }
-        print(f"[SCHEDULER] Fin de ejecución programada. Total guardados: {total_guardados_gen}, No sobreescritos: {total_ignorados_gen}\n")
-    except Exception as exc:
-        estado_final = "FAILED"
-        error_str = str(exc)
-        ultimo_estado_etl["status"] = "failed"
-        ultimo_estado_etl["error"] = error_str
-        print(f"[SCHEDULER ERROR]: {exc}\n")
-
-    # Persistir finalización en cron_executions
-    try:
-        if cron_entry_id:
+        cron_entry_id = None
+        try:
             async with AsyncSessionLocal() as session:
                 async with session.begin():
-                    res = await session.execute(select(CronExecutionModel).where(CronExecutionModel.id == cron_entry_id))
-                    entry = res.scalar_one_or_none()
-                    if entry:
-                        entry.finalizado_en = datetime.now()
-                        entry.estado = estado_final
-                        entry.total_extraidos = total_extraidos_gen
-                        entry.total_guardados = total_guardados_gen
-                        entry.total_ignorados = total_ignorados_gen
-                        entry.detalles = detalles_por_tipo
-                        entry.error = error_str
-    except Exception as e_upd:
-        print(f"[SCHEDULER] Error al actualizar log de cron en BD: {e_upd}")
+                    entry = CronExecutionModel(
+                        iniciado_en=now,
+                        tipo_ejecucion="AUTOMATICO",
+                        estado="RUNNING",
+                        objetos_procesados=tipos_a_ejecutar
+                    )
+                    session.add(entry)
+                    await session.flush()
+                    cron_entry_id = entry.id
+        except Exception as e_log:
+            print(f"[SCHEDULER] Error al registrar inicio de cron: {e_log}")
+
+        ultimo_estado_etl["status"] = "running"
+        ultimo_estado_etl["ultima_ejecucion"] = datetime.now().isoformat()
+        ultimo_estado_etl["error"] = None
+
+        extractor = OCESCExtractor(API_URL)
+        orchestrator = ELTOrchestrator(extractor)
+
+        total_extraidos_gen = 0
+        total_guardados_gen = 0
+        total_ignorados_gen = 0
+        nuevos_ocids_gen = []
+        detalles_por_tipo = {}
+        error_str = None
+
+        try:
+            for obj in tipos_a_ejecutar:
+                try:
+                    print(f"[SCHEDULER] Extrayendo {obj} con fecha_desde={hoy_str}...")
+                    res = await orchestrator.run_pipeline(
+                        objeto=obj,
+                        estado="Vigente",
+                        fecha_desde=hoy_str,
+                        max_pages=2
+                    )
+                    ext = res.get("total_extraidos", 0)
+                    guardados = res.get("total_guardados_db", 0)
+                    ignorados = res.get("total_ignorados", 0)
+                    nuevos_tipo = res.get("nuevos_ocids", [])
+                    nuevos_ocids_gen.extend(nuevos_tipo)
+                    total_extraidos_gen += ext
+                    total_guardados_gen += guardados
+                    total_ignorados_gen += ignorados
+                    detalles_por_tipo[obj] = res
+                    print(f"[SCHEDULER] -> {obj}: {guardados} persistidos/actualizados ({len(nuevos_tipo)} nuevos), {ignorados} no sobreescritos")
+                except Exception as e_obj:
+                    print(f"[SCHEDULER] Error al procesar {obj}: {e_obj}")
+                    detalles_por_tipo[obj] = {"error": str(e_obj)}
+
+            # Cruce automático de alertas para las convocatorias nuevas
+            alertas_resultado = None
+            if nuevos_ocids_gen:
+                print(f"[SCHEDULER] Ejecutando cruce de alertas para {len(nuevos_ocids_gen)} nuevas convocatorias...")
+                try:
+                    alertas_resultado = await run_alert_matching(nuevos_ocids=nuevos_ocids_gen)
+                    detalles_por_tipo["alertas"] = alertas_resultado
+                    print(f"[SCHEDULER] Cruce de alertas finalizado: {alertas_resultado.get('total_coincidencias', 0)} coincidencias, {alertas_resultado.get('alertas_registradas', 0)} registradas.")
+                except Exception as e_alert:
+                    print(f"[SCHEDULER WARN] Error en cruce de alertas: {e_alert}")
+                    detalles_por_tipo["alertas"] = {"error": str(e_alert)}
+
+            estado_final = "COMPLETED"
+            ultimo_estado_etl["status"] = "completed"
+            ultimo_estado_etl["resultado"] = {
+                "mensaje": f"ETL automático finalizado. Total guardados: {total_guardados_gen}, No sobreescritos: {total_ignorados_gen}",
+                "fecha": hoy_str,
+                "tipos": tipos_a_ejecutar,
+                "alertas": alertas_resultado
+            }
+            print(f"[SCHEDULER] Fin de ejecución programada. Total guardados: {total_guardados_gen}, No sobreescritos: {total_ignorados_gen}\n")
+        except Exception as exc:
+            estado_final = "FAILED"
+            error_str = str(exc)
+            ultimo_estado_etl["status"] = "failed"
+            ultimo_estado_etl["error"] = error_str
+            print(f"[SCHEDULER ERROR]: {exc}\n")
+
+        # Persistir finalización en cron_executions
+        try:
+            if cron_entry_id:
+                async with AsyncSessionLocal() as session:
+                    async with session.begin():
+                        res = await session.execute(select(CronExecutionModel).where(CronExecutionModel.id == cron_entry_id))
+                        entry = res.scalar_one_or_none()
+                        if entry:
+                            entry.finalizado_en = datetime.now()
+                            entry.estado = estado_final
+                            entry.total_extraidos = total_extraidos_gen
+                            entry.total_guardados = total_guardados_gen
+                            entry.total_ignorados = total_ignorados_gen
+                            entry.detalles = detalles_por_tipo
+                            entry.error = error_str
+        except Exception as e_upd:
+            print(f"[SCHEDULER] Error al actualizar log de cron en BD: {e_upd}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -199,16 +217,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[FASTAPI LIFESPAN ERROR] Error al conectar con la base de datos: {e}")
 
-    # 1. Rutina de Día / Tarde (14:00 PM) - Captura publicaciones de la mañana
-    scheduler.add_job(job_etl_programado, 'cron', hour=14, minute=0, id='job_dia')
+    # 1. Monitoreo frecuente en horario de oficina (8am - 6pm cada 2h) para capturar contrataciones menores
+    scheduler.add_job(job_etl_programado, 'cron', day_of_week='mon-sat', hour='8,10,12,14,16,18', minute=0, id='job_diurno')
     # 2. Rutina de Noche / Madrugada (02:00 AM) - Consolida todo el día anterior
     scheduler.add_job(job_etl_programado, 'cron', hour=2, minute=0, id='job_noche')
 
     scheduler.start()
     print("\n[FASTAPI LIFESPAN] APScheduler iniciado automáticamente en segundo plano.")
     print("[FASTAPI LIFESPAN] Horarios programados:")
-    print("  -> Turno Día:   14:00 PM")
-    print("  -> Turno Noche: 02:00 AM\n")
+    print("  -> Horario Hábil (Lun-Sáb): 08:00, 10:00, 12:00, 14:00, 16:00, 18:00")
+    print("  -> Turno Noche (Consolidación): 02:00 AM\n")
     yield
     scheduler.shutdown()
     print("[FASTAPI LIFESPAN] APScheduler detenido.")
@@ -251,93 +269,98 @@ class ETLConfigRequest(BaseModel):
 async def ejecutar_etl_task(config: ETLConfigRequest):
     """Función de ejecución del pipeline orquestado."""
     global ultimo_estado_etl
-    ultimo_estado_etl["status"] = "running"
-    ultimo_estado_etl["ultima_ejecucion"] = datetime.now().isoformat()
-    ultimo_estado_etl["error"] = None
+    if _etl_lock.locked():
+        print("[ETL TASK] Pipeline ya en ejecución, se omite nueva llamada en segundo plano.")
+        return
 
-    now = datetime.now()
-    cron_entry_id = None
-    try:
-        async with AsyncSessionLocal() as session:
-            async with session.begin():
-                entry = CronExecutionModel(
-                    iniciado_en=now,
-                    tipo_ejecucion="MANUAL",
-                    estado="RUNNING",
-                    objetos_procesados=[config.objeto]
-                )
-                session.add(entry)
-                await session.flush()
-                cron_entry_id = entry.id
-    except Exception as e_log:
-        print(f"[MANUAL RUN] Error al registrar inicio de ejecución: {e_log}")
+    async with _etl_lock:
+        ultimo_estado_etl["status"] = "running"
+        ultimo_estado_etl["ultima_ejecucion"] = datetime.now().isoformat()
+        ultimo_estado_etl["error"] = None
 
-    try:
-        extractor = OCESCExtractor(API_URL)
-        orchestrator = ELTOrchestrator(extractor)
-
-        hoy = datetime.now()
-        f_hasta = config.fecha_hasta if config.fecha_hasta and config.fecha_hasta.strip().lower() not in ["string", "null", "none", ""] else None
-        f_desde = config.fecha_desde if config.fecha_desde and config.fecha_desde.strip().lower() not in ["string", "null", "none", ""] else None
-
-        fecha_fin = f_hasta or hoy.strftime("%Y-%m-%d")
-
-        if config.dias_atras and config.dias_atras > 0:
-            fecha_inicio = (hoy - timedelta(days=config.dias_atras)).strftime("%Y-%m-%d")
-        else:
-            fecha_inicio = f_desde or hoy.strftime("%Y-%m-%d")
-
-        resultado = await orchestrator.run_pipeline(
-            objeto=config.objeto,
-            estado=config.estado,
-            fecha_desde=fecha_inicio,
-            fecha_hasta=fecha_fin,
-            max_pages=config.max_pages
-        )
-
-        # Cruce automático de alertas para las convocatorias nuevas extraídas
-        nuevos = resultado.get("nuevos_ocids", [])
-        if nuevos:
-            print(f"[MANUAL RUN] Ejecutando cruce de alertas para {len(nuevos)} convocatorias...")
-            try:
-                alertas_res = await run_alert_matching(nuevos_ocids=nuevos)
-                resultado["alertas"] = alertas_res
-                print(f"[MANUAL RUN] Cruce de alertas finalizado: {alertas_res.get('total_coincidencias', 0)} coincidencias.")
-            except Exception as e_alert:
-                print(f"[MANUAL RUN WARN] Error en cruce de alertas: {e_alert}")
-                resultado["alertas"] = {"error": str(e_alert)}
-
-        ultimo_estado_etl["status"] = "completed"
-        ultimo_estado_etl["resultado"] = resultado
-
-        if cron_entry_id:
+        now = datetime.now()
+        cron_entry_id = None
+        try:
             async with AsyncSessionLocal() as session:
                 async with session.begin():
-                    res = await session.execute(select(CronExecutionModel).where(CronExecutionModel.id == cron_entry_id))
-                    entry = res.scalar_one_or_none()
-                    if entry:
-                        entry.finalizado_en = datetime.now()
-                        entry.estado = "COMPLETED"
-                        entry.total_extraidos = resultado.get("total_extraidos", 0)
-                        entry.total_guardados = resultado.get("total_guardados_db", 0)
-                        entry.total_ignorados = resultado.get("total_ignorados", 0)
-                        entry.detalles = resultado
-    except Exception as exc:
-        ultimo_estado_etl["status"] = "failed"
-        ultimo_estado_etl["error"] = str(exc)
-        print(f"[ERROR ETL BACKGROUND]: {exc}")
-        if cron_entry_id:
-            try:
+                    entry = CronExecutionModel(
+                        iniciado_en=now,
+                        tipo_ejecucion="MANUAL",
+                        estado="RUNNING",
+                        objetos_procesados=[config.objeto]
+                    )
+                    session.add(entry)
+                    await session.flush()
+                    cron_entry_id = entry.id
+        except Exception as e_log:
+            print(f"[MANUAL RUN] Error al registrar inicio de ejecución: {e_log}")
+
+        try:
+            extractor = OCESCExtractor(API_URL)
+            orchestrator = ELTOrchestrator(extractor)
+
+            hoy = datetime.now()
+            f_hasta = config.fecha_hasta if config.fecha_hasta and config.fecha_hasta.strip().lower() not in ["string", "null", "none", ""] else None
+            f_desde = config.fecha_desde if config.fecha_desde and config.fecha_desde.strip().lower() not in ["string", "null", "none", ""] else None
+
+            fecha_fin = f_hasta or hoy.strftime("%Y-%m-%d")
+
+            if config.dias_atras and config.dias_atras > 0:
+                fecha_inicio = (hoy - timedelta(days=config.dias_atras)).strftime("%Y-%m-%d")
+            else:
+                fecha_inicio = f_desde or hoy.strftime("%Y-%m-%d")
+
+            resultado = await orchestrator.run_pipeline(
+                objeto=config.objeto,
+                estado=config.estado,
+                fecha_desde=fecha_inicio,
+                fecha_hasta=fecha_fin,
+                max_pages=config.max_pages
+            )
+
+            # Cruce automático de alertas para las convocatorias nuevas extraídas
+            nuevos = resultado.get("nuevos_ocids", [])
+            if nuevos:
+                print(f"[MANUAL RUN] Ejecutando cruce de alertas para {len(nuevos)} convocatorias...")
+                try:
+                    alertas_res = await run_alert_matching(nuevos_ocids=nuevos)
+                    resultado["alertas"] = alertas_res
+                    print(f"[MANUAL RUN] Cruce de alertas finalizado: {alertas_res.get('total_coincidencias', 0)} coincidencias.")
+                except Exception as e_alert:
+                    print(f"[MANUAL RUN WARN] Error en cruce de alertas: {e_alert}")
+                    resultado["alertas"] = {"error": str(e_alert)}
+
+            ultimo_estado_etl["status"] = "completed"
+            ultimo_estado_etl["resultado"] = resultado
+
+            if cron_entry_id:
                 async with AsyncSessionLocal() as session:
                     async with session.begin():
                         res = await session.execute(select(CronExecutionModel).where(CronExecutionModel.id == cron_entry_id))
                         entry = res.scalar_one_or_none()
                         if entry:
                             entry.finalizado_en = datetime.now()
-                            entry.estado = "FAILED"
-                            entry.error = str(exc)
-            except Exception:
-                pass
+                            entry.estado = "COMPLETED"
+                            entry.total_extraidos = resultado.get("total_extraidos", 0)
+                            entry.total_guardados = resultado.get("total_guardados_db", 0)
+                            entry.total_ignorados = resultado.get("total_ignorados", 0)
+                            entry.detalles = resultado
+        except Exception as exc:
+            ultimo_estado_etl["status"] = "failed"
+            ultimo_estado_etl["error"] = str(exc)
+            print(f"[ERROR ETL BACKGROUND]: {exc}")
+            if cron_entry_id:
+                try:
+                    async with AsyncSessionLocal() as session:
+                        async with session.begin():
+                            res = await session.execute(select(CronExecutionModel).where(CronExecutionModel.id == cron_entry_id))
+                            entry = res.scalar_one_or_none()
+                            if entry:
+                                entry.finalizado_en = datetime.now()
+                                entry.estado = "FAILED"
+                                entry.error = str(exc)
+                except Exception:
+                    pass
 
 @app.get("/api/v1/health")
 async def health_check():
@@ -447,16 +470,21 @@ def extract_fecha_limite(raw_payload: Any, fecha_lanzamiento: Optional[datetime]
 @app.get("/api/licitaciones")
 async def get_licitaciones(
     vigentes: Optional[bool] = Query(default=True, description="Filtrar solo convocatorias activas/vigentes"),
-    fecha: Optional[str] = Query(default="hoy", description="'hoy' para fecha actual, 'todos' para omitir filtro de fecha, o YYYY-MM-DD"),
+    fecha: Optional[str] = Query(default="todos", description="'hoy' para fecha actual, 'todos' para omitir filtro de fecha, o YYYY-MM-DD"),
     tipo: Optional[str] = Query(default="todos", description="Objeto contractual: 'Bienes', 'Servicios', 'Obras' o 'todos'"),
     search: Optional[str] = Query(default=None, description="Búsqueda por texto en código SEACE, título o descripción"),
     q: Optional[str] = Query(default=None, description="Término de búsqueda Full-Text Search (FTS)"),
     rubro: Optional[str] = Query(default=None, description="Rubro normalizado por IA"),
+    region: Optional[str] = Query(default=None, description="Región geográfica"),
+    entidad: Optional[str] = Query(default=None, description="Entidad compradora"),
+    tipo_proceso: Optional[str] = Query(default=None, description="Tipo de proceso: MC, AS, SIE, CP, LP"),
+    solo_menores: Optional[bool] = Query(default=None, description="Filtrar solo contrataciones menores (<= 8 UIT)"),
+    plazo: Optional[str] = Query(default=None, description="Filtro de plazo restante: '48h', '7d', '30d'"),
     monto_min: Optional[float] = Query(default=None, description="Monto estimado mínimo"),
     monto_max: Optional[float] = Query(default=None, description="Monto estimado máximo"),
     fecha_desde: Optional[str] = Query(default=None, description="Fecha de inicio (YYYY-MM-DD)"),
     fecha_hasta: Optional[str] = Query(default=None, description="Fecha de fin (YYYY-MM-DD)"),
-    sort: Optional[str] = Query(default="relevance", description="'relevance', 'date', 'value'"),
+    sort: Optional[str] = Query(default="relevance", description="'relevance', 'date', 'value', 'deadline', 'match'"),
     limit: int = Query(default=100, ge=1, le=5000),
     offset: int = Query(default=0, ge=0)
 ):
@@ -472,11 +500,16 @@ async def get_licitaciones(
         vigentes=vigentes,
         tipo=tipo,
         rubro=rubro,
+        region=region,
+        entidad=entidad,
+        tipo_proceso=tipo_proceso,
+        solo_menores=solo_menores,
         monto_min=monto_min,
         monto_max=monto_max,
         fecha=fecha,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        plazo=plazo,
         sort=sort or "relevance",
         limit=limit,
         offset=offset
@@ -490,11 +523,14 @@ async def get_licitaciones(
         formatted = []
         for idx, t in enumerate(rows, start=1):
             raw = t.raw_payload if isinstance(t.raw_payload, dict) else {}
-            entidad = extract_entidad(raw)
             desc_text = t.descripcion_limpia or t.descripcion or t.titulo or "Sin descripción"
-            region = extract_region(raw, desc_text)
-            f_limite = extract_fecha_limite(raw, t.fecha_lanzamiento)
+            entidad = t.entidad_nombre or extract_entidad(raw)
+            region_val = t.region or extract_region(raw, desc_text)
+            f_lim_obj = extract_fecha_limite_real(raw, t.fecha_lanzamiento)
+            f_limite = t.fecha_limite or f_lim_obj.get("fecha_limite")
             f_pub = t.fecha_lanzamiento.strftime("%Y-%m-%d") if t.fecha_lanzamiento else datetime.now().strftime("%Y-%m-%d")
+            proc_tipo = t.tipo_proceso or extract_tipo_proceso_real(t.titulo, raw)
+            es_menor = t.es_menor_cuantia if t.es_menor_cuantia is not None else is_menor_cuantia(float(t.monto_estimado or 0), proc_tipo)
 
             hitos = [
                 {"nombre": "Convocatoria publicada", "fecha": f_pub},
@@ -503,35 +539,37 @@ async def get_licitaciones(
                 {"nombre": "Apertura de ofertas", "fecha": f_limite or f_pub}
             ]
 
-            documentos = []
-            tender_docs = raw.get("tender", {}).get("documents", [])
-            if isinstance(tender_docs, list) and tender_docs:
-                for d in tender_docs:
-                    documentos.append({
-                        "nombre": d.get("title", "Bases del Proceso"),
-                        "formato": "PDF",
-                        "tamano": "1.5 MB",
-                        "actualizado": f_pub
-                    })
-            if not documentos:
-                documentos = [
-                    {"nombre": "Bases Administrativas", "formato": "PDF", "tamano": "2.4 MB", "actualizado": f_pub},
-                    {"nombre": "Resumen Ejecutivo", "formato": "PDF", "tamano": "850 KB", "actualizado": f_pub}
-                ]
+            documentos = extract_documents_normalized(raw)
+            items = extract_items_normalized(raw)
 
             motivos_ia = [
                 f"Proceso de {t.objeto_contratacion} registrado en SEACE",
                 f"Entidad compradora: {entidad}",
                 f"Monto estimado de S/ {float(t.monto_estimado or 0):,.2f}"
             ]
+            if es_menor:
+                motivos_ia.insert(0, "Contratación de Menor Cuantía (≤ 8 UIT)")
             if t.rubro:
                 motivos_ia.insert(0, f"Rubro identificado por IA: {t.rubro}")
+
+            # Match score determinístico basado en calidad y relevancia
+            base_score = 70
+            if t.rubro_confianza:
+                base_score += int(float(t.rubro_confianza) * 15)
+            if t.monto_estimado and t.monto_estimado > 0:
+                base_score += 5
+            if f_limite:
+                base_score += 5
+            if es_menor:
+                base_score += 5
+            match_score = min(100, max(50, base_score))
 
             formatted.append({
                 "id": t.ocid,
                 "ocid": t.ocid,
                 "codigo_seace": t.titulo or t.id_proceso,
                 "entidad": entidad,
+                "entidad_ruc": t.entidad_ruc or "",
                 "objeto": desc_text,
                 "descripcion_limpia": t.descripcion_limpia or desc_text,
                 "descripcion_original": t.descripcion or t.titulo or "",
@@ -545,14 +583,16 @@ async def get_licitaciones(
                 "fecha_limite": f_limite,
                 "valor_estimado": float(t.monto_estimado) if t.monto_estimado is not None else 0.0,
                 "moneda": t.moneda or "PEN",
-                "region": region,
+                "region": region_val,
                 "modalidad": t.titulo.split("-")[0] if t.titulo else "CP",
-                "tipo_proceso": extract_tipo_proceso(t.titulo),
-                "cui": t.id_proceso or "",
-                "match_score": 85 + (idx % 14),
+                "tipo_proceso": proc_tipo,
+                "es_menor_cuantia": es_menor,
+                "cui": t.cui or t.id_proceso or "",
+                "match_score": match_score,
                 "fase_actual": 2,
                 "hitos": hitos,
                 "documentos": documentos,
+                "items": items,
                 "motivos_ia": motivos_ia,
                 "raw_payload": raw
             })
@@ -575,16 +615,24 @@ async def get_licitacion_by_ocid(ocid: str):
             raise HTTPException(status_code=404, detail="Licitación no encontrada")
 
         raw = t.raw_payload if isinstance(t.raw_payload, dict) else {}
-        entidad = extract_entidad(raw)
         desc_text = t.descripcion_limpia or t.descripcion or t.titulo or "Sin descripción"
+        entidad = t.entidad_nombre or extract_entidad(raw)
+        region_val = t.region or extract_region(raw, desc_text)
         f_pub = t.fecha_lanzamiento.strftime("%Y-%m-%d") if t.fecha_lanzamiento else ""
-        f_limite = extract_fecha_limite(raw, t.fecha_lanzamiento)
+        f_lim_obj = extract_fecha_limite_real(raw, t.fecha_lanzamiento)
+        f_limite = t.fecha_limite or f_lim_obj.get("fecha_limite")
+        proc_tipo = t.tipo_proceso or extract_tipo_proceso_real(t.titulo, raw)
+        es_menor = t.es_menor_cuantia if t.es_menor_cuantia is not None else is_menor_cuantia(float(t.monto_estimado or 0), proc_tipo)
+
+        documentos = extract_documents_normalized(raw)
+        items = extract_items_normalized(raw)
 
         return {
             "id": t.ocid,
             "ocid": t.ocid,
             "codigo_seace": t.titulo or t.id_proceso,
             "entidad": entidad,
+            "entidad_ruc": t.entidad_ruc or "",
             "objeto": desc_text,
             "descripcion_limpia": t.descripcion_limpia,
             "descripcion_original": t.descripcion,
@@ -598,9 +646,12 @@ async def get_licitacion_by_ocid(ocid: str):
             "fecha_limite": f_limite,
             "valor_estimado": float(t.monto_estimado) if t.monto_estimado is not None else 0.0,
             "moneda": t.moneda or "PEN",
-            "region": extract_region(raw, desc_text),
-            "tipo_proceso": extract_tipo_proceso(t.titulo),
-            "cui": t.id_proceso or "",
+            "region": region_val,
+            "tipo_proceso": proc_tipo,
+            "es_menor_cuantia": es_menor,
+            "cui": t.cui or t.id_proceso or "",
+            "documentos": documentos,
+            "items": items,
             "raw_payload": raw
         }
 
@@ -667,6 +718,12 @@ async def trigger_etl(
     background_tasks: BackgroundTasks,
     sync: bool = Query(default=False)
 ):
+    if _etl_lock.locked():
+        raise HTTPException(
+            status_code=409,
+            detail="Hay una ejecución del pipeline ETL en curso. Por favor espere a que finalice."
+        )
+
     hoy = datetime.now()
     f_hasta = config.fecha_hasta if config.fecha_hasta and config.fecha_hasta.strip().lower() not in ["string", "null", "none", ""] else None
     f_desde = config.fecha_desde if config.fecha_desde and config.fecha_desde.strip().lower() not in ["string", "null", "none", ""] else None
@@ -686,62 +743,72 @@ async def trigger_etl(
     }
 
     if sync:
-        now = datetime.now()
-        cron_entry_id = None
-        try:
-            async with AsyncSessionLocal() as session:
-                async with session.begin():
-                    entry = CronExecutionModel(
-                        iniciado_en=now,
-                        tipo_ejecucion="MANUAL_SYNC",
-                        estado="RUNNING",
-                        objetos_procesados=[config.objeto]
-                    )
-                    session.add(entry)
-                    await session.flush()
-                    cron_entry_id = entry.id
-        except Exception as e_log:
-            print(f"[MANUAL SYNC] Error al registrar inicio de ejecución: {e_log}")
-
-        try:
-            extractor = OCESCExtractor(API_URL)
-            orchestrator = ELTOrchestrator(extractor)
-            resultado = await orchestrator.run_pipeline(
-                objeto=config.objeto,
-                estado=config.estado,
-                fecha_desde=fecha_inicio,
-                fecha_hasta=fecha_fin,
-                max_pages=config.max_pages
-            )
-
-            if cron_entry_id:
+        async with _etl_lock:
+            now = datetime.now()
+            cron_entry_id = None
+            try:
                 async with AsyncSessionLocal() as session:
                     async with session.begin():
-                        res = await session.execute(select(CronExecutionModel).where(CronExecutionModel.id == cron_entry_id))
-                        entry = res.scalar_one_or_none()
-                        if entry:
-                            entry.finalizado_en = datetime.now()
-                            entry.estado = "COMPLETED"
-                            entry.total_extraidos = resultado.get("total_extraidos", 0)
-                            entry.total_guardados = resultado.get("total_guardados_db", 0)
-                            entry.total_ignorados = resultado.get("total_ignorados", 0)
-                            entry.detalles = resultado
+                        entry = CronExecutionModel(
+                            iniciado_en=now,
+                            tipo_ejecucion="MANUAL_SYNC",
+                            estado="RUNNING",
+                            objetos_procesados=[config.objeto]
+                        )
+                        session.add(entry)
+                        await session.flush()
+                        cron_entry_id = entry.id
+            except Exception as e_log:
+                print(f"[MANUAL SYNC] Error al registrar inicio de ejecución: {e_log}")
 
-            return {"status": "success", "mode": "sync", "resultado": resultado}
-        except Exception as e:
-            if cron_entry_id:
-                try:
+            try:
+                extractor = OCESCExtractor(API_URL)
+                orchestrator = ELTOrchestrator(extractor)
+                resultado = await orchestrator.run_pipeline(
+                    objeto=config.objeto,
+                    estado=config.estado,
+                    fecha_desde=fecha_inicio,
+                    fecha_hasta=fecha_fin,
+                    max_pages=config.max_pages
+                )
+
+                # Cruce de alertas para convocatorias nuevas
+                nuevos = resultado.get("nuevos_ocids", [])
+                if nuevos:
+                    try:
+                        alertas_res = await run_alert_matching(nuevos_ocids=nuevos)
+                        resultado["alertas"] = alertas_res
+                    except Exception as e_alert:
+                        resultado["alertas"] = {"error": str(e_alert)}
+
+                if cron_entry_id:
                     async with AsyncSessionLocal() as session:
                         async with session.begin():
                             res = await session.execute(select(CronExecutionModel).where(CronExecutionModel.id == cron_entry_id))
                             entry = res.scalar_one_or_none()
                             if entry:
                                 entry.finalizado_en = datetime.now()
-                                entry.estado = "FAILED"
-                                entry.error = str(e)
-                except Exception:
-                    pass
-            raise HTTPException(status_code=500, detail=str(e))
+                                entry.estado = "COMPLETED"
+                                entry.total_extraidos = resultado.get("total_extraidos", 0)
+                                entry.total_guardados = resultado.get("total_guardados_db", 0)
+                                entry.total_ignorados = resultado.get("total_ignorados", 0)
+                                entry.detalles = resultado
+
+                return {"status": "success", "mode": "sync", "resultado": resultado}
+            except Exception as e:
+                if cron_entry_id:
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            async with session.begin():
+                                res = await session.execute(select(CronExecutionModel).where(CronExecutionModel.id == cron_entry_id))
+                                entry = res.scalar_one_or_none()
+                                if entry:
+                                    entry.finalizado_en = datetime.now()
+                                    entry.estado = "FAILED"
+                                    entry.error = str(e)
+                    except Exception:
+                        pass
+                raise HTTPException(status_code=500, detail=str(e))
 
     background_tasks.add_task(ejecutar_etl_task, config)
 
@@ -796,7 +863,10 @@ async def get_cron_status():
     return {
         "status": "ok",
         "scheduler_activo": scheduler.running,
-        "horarios_programados": ["14:00 PM (Día)", "02:00 AM (Noche)"],
+        "horarios_programados": [
+            "08:00, 10:00, 12:00, 14:00, 16:00, 18:00 (Lun-Sáb)",
+            "02:00 AM (Consolidación diaria)"
+        ],
         "tipos_activos": tipos_activos,
         "ultima_ejecucion": last_exec,
         "memoria_status": ultimo_estado_etl

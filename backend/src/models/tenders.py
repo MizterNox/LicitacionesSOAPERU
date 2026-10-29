@@ -1,12 +1,13 @@
-from sqlalchemy import Column, String, DateTime, Text, Numeric, Index, Computed, text
+from sqlalchemy import Boolean, Column, String, DateTime, Text, Numeric, Index, Computed, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from database import Base
 from datetime import datetime
 
 # Expresión de la columna generada search_vector.
-# Debe coincidir EXACTAMENTE con alembic/versions/0002_ai_fts.py
+# Debe coincidir EXACTAMENTE con alembic/versions/0004_menor_cuantia.py (NEW_SEARCH_VECTOR_EXPR)
 SEARCH_VECTOR_EXPR = (
     "setweight(to_tsvector('spanish'::regconfig, f_unaccent(coalesce(titulo, ''))), 'A') || "
+    "setweight(to_tsvector('spanish'::regconfig, f_unaccent(coalesce(entidad_nombre, ''))), 'A') || "
     "setweight(to_tsvector('spanish'::regconfig, f_unaccent(coalesce(descripcion_limpia, descripcion, ''))), 'B') || "
     "setweight(to_tsvector('spanish'::regconfig, f_unaccent(coalesce(rubro, ''))), 'C')"
 )
@@ -44,6 +45,17 @@ class TenderModel(Base):
     ia_hash = Column(String(64), nullable=True)  # sha256 del texto crudo → evita reprocesar
     ia_procesado_en = Column(DateTime, nullable=True)
 
+    # ---------------- Contrataciones menores (Fase 4) ----------------
+    # Derivados del raw_payload promovidos a columnas para filtrar en SQL (ver schemas/ocds_schema.py)
+    entidad_nombre = Column(String(300), nullable=True)
+    entidad_ruc = Column(String(11), nullable=True)
+    region = Column(String(80), nullable=True)
+    tipo_proceso = Column(String(10), nullable=True)  # MC | AS | SIE | CP | LP
+    es_menor_cuantia = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    cui = Column(String(20), nullable=True)  # Código Único de Inversiones (Obras)
+    fecha_limite = Column(DateTime, nullable=True)  # Fin de presentación de ofertas (None si la fuente no lo informa)
+    content_hash = Column(String(64), nullable=True)  # Detecta prórrogas / fe de erratas en procesos vigentes
+
     # ---------------- Full-Text Search ----------------
     # Columna generada por PostgreSQL (solo lectura desde el ORM)
     search_vector = Column(TSVECTOR, Computed(SEARCH_VECTOR_EXPR, persisted=True))
@@ -55,4 +67,10 @@ class TenderModel(Base):
         Index("ix_tenders_rubro", "rubro"),
         Index("ix_tenders_search_vector", "search_vector", postgresql_using="gin"),
         Index("ix_tenders_ia_pendientes", "ia_estado", postgresql_where=text("ia_estado <> 'OK'")),
+        Index("ix_tenders_region", "region"),
+        Index("ix_tenders_entidad_nombre", "entidad_nombre"),
+        Index("ix_tenders_fecha_limite", "fecha_limite"),
+        Index("ix_tenders_tipo_proceso", "tipo_proceso"),
+        Index("ix_tenders_menor_cuantia", "fecha_lanzamiento", postgresql_where=text("es_menor_cuantia = true")),
+        Index("ix_tenders_estado_objeto_fecha", "estado", "objeto_contratacion", text("fecha_lanzamiento DESC")),
     )

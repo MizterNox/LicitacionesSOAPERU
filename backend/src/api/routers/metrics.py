@@ -41,6 +41,7 @@ async def get_monthly_metrics(
     Retorna métricas mensuales agrupadas para alimentar gráficos temporales (Recharts).
     Cada registro mensual incluye total de convocatorias, monto total y desglose por dimensión.
     """
+    # Whitelist estricto para evitar inyección SQL
     columna_grupo = "objeto_contratacion" if group_by == "tipo" else "COALESCE(rubro, 'Otros')"
 
     sql = text(f"""
@@ -51,17 +52,16 @@ async def get_monthly_metrics(
             COALESCE(SUM(monto_estimado), 0) AS monto_total
         FROM tenders
         WHERE fecha_lanzamiento IS NOT NULL
-          AND fecha_lanzamiento >= (CURRENT_DATE - INTERVAL '{meses} months')
+          AND fecha_lanzamiento >= (CURRENT_DATE - (:meses || ' months')::interval)
         GROUP BY 1, 2
         ORDER BY 1 ASC, 2 ASC;
     """)
 
     async with AsyncSessionLocal() as session:
-        result = await session.execute(sql)
+        result = await session.execute(sql, {"meses": str(meses)})
         rows = result.fetchall()
 
-        # Si el filtro por fecha relativo a hoy no retornase filas (por fechas de prueba),
-        # usamos el rango histórico disponible para garantizar visualización.
+        # Fallback a histórico si el rango relativo a hoy no retornase filas
         if not rows:
             sql_fallback = text(f"""
                 SELECT 
@@ -128,7 +128,7 @@ async def get_monthly_metrics(
 @router.get("/summary")
 async def get_metrics_summary():
     """
-    Retorna métricas ejecutivas globales:
+    Retorna métricas ejecutivas globales optimizadas directamente en SQL:
     - Convocatorias totales y vigentes
     - Presupuesto total analizado y ticket promedio
     - Top rubros identificados por IA
@@ -196,22 +196,20 @@ async def get_metrics_summary():
                 "porcentaje": pct
             })
 
-        # 4. Top entidades compradoras (desde raw_payload o entidad normalizada)
-        from services.exporter import extract_entidad
-        res_entidades_raw = await session.execute(select(TenderModel.raw_payload, TenderModel.monto_estimado))
-        entidades_map = {}
-        for row in res_entidades_raw.fetchall():
-            raw = row[0] if isinstance(row[0], dict) else {}
-            entidad_nombre = extract_entidad(raw)
-            monto = float(row[1]) if row[1] is not None else 0.0
-            if entidad_nombre not in entidades_map:
-                entidades_map[entidad_nombre] = {"count": 0, "monto": 0.0}
-            entidades_map[entidad_nombre]["count"] += 1
-            entidades_map[entidad_nombre]["monto"] += monto
-
+        # 4. Top entidades compradoras (agregación directa en PostgreSQL sin cargar toda la tabla)
+        res_top_ent = await session.execute(text("""
+            SELECT 
+                COALESCE(entidad_nombre, raw_payload->'buyer'->>'name', raw_payload->'tender'->'procuringEntity'->>'name', 'Entidad del Estado') AS entidad,
+                COUNT(*) AS count,
+                COALESCE(SUM(monto_estimado), 0) AS monto
+            FROM tenders
+            GROUP BY 1
+            ORDER BY monto DESC
+            LIMIT 8;
+        """))
         top_entidades = [
-            {"entidad": k, "count": v["count"], "monto": v["monto"]}
-            for k, v in sorted(entidades_map.items(), key=lambda x: x[1]["monto"], reverse=True)[:8]
+            {"entidad": r[0], "count": int(r[1]), "monto": float(r[2])}
+            for r in res_top_ent.fetchall()
         ]
 
         return {

@@ -1,29 +1,57 @@
 import json
 import logging
+from typing import Any, Dict, Optional
+
 import httpx
-from typing import Optional, Dict, Any
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
-# Mapeo de categorías en español al enum estándar del API OCDS OECE: ['goods', 'works', 'services']
+# Categorías en español → enum OCDS del OECE ('goods', 'works', 'services')
 CATEGORIA_MAP = {
     "servicios": "services",
     "servicio": "services",
+    "consultoria": "services",
+    "consultoría": "services",
+    "consultingservices": "services",
     "bienes": "goods",
     "bien": "goods",
     "obras": "works",
     "obra": "works",
-    "consultoria": "services",
-    "consultoría": "services"
 }
 
+DEFAULT_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "LicitLens-ETL/1.3 (+OCDS client)",
+}
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """Reintentar solo errores transitorios: red, timeout, 429 y 5xx. Un 4xx no mejora reintentando."""
+    if isinstance(exc, (httpx.NetworkError, httpx.TimeoutException)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code == 429 or code >= 500
+    return False
+
+
 class OCESCExtractor:
-    def __init__(self, base_url: str = "https://contratacionesabiertas.oece.gob.pe/api/v1/releases"):
-        """
-        Extractor para la API de Contrataciones Abiertas de Perú (OECE/OSCE).
-        Normaliza la URL asegurando que apunte al endpoint '/api/v1/releases'.
-        """
+    """
+    Extractor para la API de Contrataciones Abiertas de Perú (OECE/OSCE).
+
+    Puede usarse como context manager para reutilizar el pool de conexiones durante
+    una paginación completa:
+
+        async with OCESCExtractor(url) as ex:
+            await ex.fetch_tenders(page=1)
+            await ex.fetch_tenders(page=2)
+
+    Si se usa sin context manager, cada llamada abre un cliente temporal (compatibilidad).
+    """
+
+    def __init__(self, base_url: str = "https://contratacionesabiertas.oece.gob.pe/api/v1/releases",
+                 timeout: float = 30.0):
         clean_url = base_url.rstrip("/")
         if not clean_url.endswith("/releases"):
             if clean_url.endswith("/api"):
@@ -33,12 +61,40 @@ class OCESCExtractor:
             else:
                 clean_url = f"{clean_url}/api/v1/releases"
         self.base_url = clean_url
+        self.timeout = timeout
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def __aenter__(self) -> "OCESCExtractor":
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(self.timeout, connect=10.0),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            headers=DEFAULT_HEADERS,
+        )
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    @staticmethod
+    def build_params(objeto: Optional[str], fecha_desde: Optional[str],
+                     fecha_hasta: Optional[str], page: int) -> Dict[str, Any]:
+        params: Dict[str, Any] = {"page": page, "order": "desc"}
+        if objeto and objeto.strip().lower() not in ("todos", "all", ""):
+            key = objeto.strip().lower()
+            params["mainProcurementCategory"] = CATEGORIA_MAP.get(key, key)
+        if fecha_desde:
+            params["startDate"] = fecha_desde
+        if fecha_hasta:
+            params["endDate"] = fecha_hasta
+        return params
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((httpx.NetworkError, httpx.TimeoutException, httpx.HTTPStatusError)),
-        reraise=True
+        stop=stop_after_attempt(4),
+        wait=wait_exponential(multiplier=1, min=2, max=20),
+        retry=retry_if_exception(_is_transient),
+        reraise=True,
     )
     async def fetch_tenders(
         self,
@@ -46,76 +102,39 @@ class OCESCExtractor:
         estado: Optional[str] = "Vigente",
         fecha_desde: Optional[str] = None,
         fecha_hasta: Optional[str] = None,
-        page: int = 1
+        page: int = 1,
     ) -> Dict[str, Any]:
         """
-        Extrae releases de la API OECE aplicando los parámetros oficiales de consulta.
+        Extrae una página de releases (20 por página).
 
-        :param objeto: 'Servicios', 'Bienes', 'Obras' o equivalentes ('services', 'goods', 'works').
-        :param estado: Estado de referencia ('Vigente', etc.). Nota: La API oficial de releases
-                       no filtra directamente por status en query params; este valor se conserva
-                       para trazabilidad y filtrado en etapas de carga (loader).
-        :param fecha_desde: Formato YYYY-MM-DD (mapeado a 'startDate').
-        :param fecha_hasta: Formato YYYY-MM-DD (mapeado a 'endDate').
-        :param page: Número de página para paginación (default 1, lote de 20 por página).
-        :return: Diccionario con la respuesta JSON del endpoint OCDS.
+        `estado` se conserva por compatibilidad: la API no filtra por estado; el filtrado
+        de vigencia se hace en el transformador.
         """
-        params: Dict[str, Any] = {
-            "page": page,
-            "order": "desc"
-        }
+        params = self.build_params(objeto, fecha_desde, fecha_hasta, page)
+        logger.info(f"[EXTRACT] GET {self.base_url} params={params}")
 
-        # 1. Filtro por objeto / categoría (OECE espera 'goods', 'works' o 'services')
-        if objeto and objeto.strip().lower() not in ["todos", "all", ""]:
-            cat_normalizada = CATEGORIA_MAP.get(objeto.strip().lower(), objeto.strip().lower())
-            if cat_normalizada in ["goods", "works", "services"]:
-                params["mainProcurementCategory"] = cat_normalizada
-            else:
-                params["mainProcurementCategory"] = objeto
+        if self._client is not None:
+            response = await self._client.get(self.base_url, params=params)
+        else:
+            async with httpx.AsyncClient(timeout=self.timeout, headers=DEFAULT_HEADERS) as client:
+                response = await client.get(self.base_url, params=params)
 
-        # 2. Filtro por rango de fechas (startDate / endDate en estándar OECE)
-        if fecha_desde:
-            params["startDate"] = fecha_desde
-        if fecha_hasta:
-            params["endDate"] = fecha_hasta
+        response.raise_for_status()
 
-        print(f"\n[INFO] Consultando API OECE: {self.base_url}")
-        print(f"[INFO] Parámetros aplicados: {params}")
+        content_type = response.headers.get("content-type", "")
+        if "application/json" not in content_type:
+            raise ValueError(
+                f"La API respondió {response.status_code} sin JSON (Content-Type: '{content_type}'). "
+                f"Posible fallback HTML por URL incorrecta. Inicio: {response.text[:300].strip()}"
+            )
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(self.base_url, params=params)
-            
-            status_code = response.status_code
-            content_type = response.headers.get("content-type", "")
+        try:
+            data = response.json()
+        except json.JSONDecodeError as err:
+            raise ValueError(f"JSON inválido de la API ({err}). Inicio: {response.text[:500]}") from err
 
-            # Inspección HTTP detallada
-            print(f"[HTTP] Código de Estado: {status_code}")
-            print(f"[HTTP] Content-Type: {content_type}")
-            print(f"[HTTP] Vista previa respuesta (200 caracteres):\n{response.text[:200]}...")
+        if not isinstance(data, dict) or not isinstance(data.get("releases", []), list):
+            raise ValueError("Esquema inesperado: se esperaba un objeto con lista 'releases'.")
 
-            # Validar código de respuesta HTTP (4xx / 5xx)
-            response.raise_for_status()
-
-            # Verificación defensiva de Content-Type
-            if "application/json" not in content_type:
-                snippet = response.text[:300].strip()
-                raise ValueError(
-                    f"La API respondió con código {status_code} pero no entregó JSON "
-                    f"(Content-Type: '{content_type}'). "
-                    f"Posible fallback a HTML del Single Page Application por URL incorrecta. "
-                    f"Respuesta recibida:\n{snippet}"
-                )
-
-            # Decodificación segura de JSON
-            try:
-                data = response.json()
-            except json.JSONDecodeError as decode_err:
-                raise ValueError(
-                    f"Error crítico al decodificar JSON de la API ({decode_err}). "
-                    f"Longitud de contenido: {len(response.content)} bytes. "
-                    f"Contenido recibido:\n{response.text[:500]}"
-                ) from decode_err
-
-            releases_count = len(data.get("releases", []))
-            print(f"[SUCCESS] JSON parseado correctamente. Se obtuvieron {releases_count} releases.")
-            return data
+        logger.info(f"[EXTRACT] Página {page}: {len(data.get('releases', []))} releases.")
+        return data

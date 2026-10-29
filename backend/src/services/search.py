@@ -5,11 +5,12 @@ Utilizado por:
 - Exportador CSV / XLSX (Fase 2)
 - Métricas y agregaciones (Fase 2)
 - Cruce automático de alertas post-ETL (Fase 3)
+- Búsqueda y filtrado de contrataciones menores (Fase 4)
 """
 
 import re
-from datetime import datetime, date, timedelta
-from typing import Optional, List, Dict, Any, Tuple
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
 
 from sqlalchemy import select, func, desc, asc, or_, and_, text
@@ -23,13 +24,16 @@ class TenderFilters(BaseModel):
     tipo: Optional[str] = Field(default=None, description="Objeto de contratación: 'Bienes', 'Servicios', 'Obras', 'todos'")
     rubro: Optional[str] = Field(default=None, description="Rubro normalizado por IA: ej. 'Tecnología y Software'")
     region: Optional[str] = Field(default=None, description="Región geográfica del Perú")
+    entidad: Optional[str] = Field(default=None, description="Nombre de la entidad convocante")
+    tipo_proceso: Optional[str] = Field(default=None, description="Tipo de proceso: MC, AS, SIE, CP, LP")
+    solo_menores: Optional[bool] = Field(default=None, description="True = filtrar solo contrataciones menores (<= 8 UIT)")
     monto_min: Optional[float] = Field(default=None, description="Monto estimado mínimo en PEN")
     monto_max: Optional[float] = Field(default=None, description="Monto estimado máximo en PEN")
     fecha: Optional[str] = Field(default=None, description="'hoy', 'todos' o fecha YYYY-MM-DD")
     fecha_desde: Optional[str] = Field(default=None, description="Fecha inicio YYYY-MM-DD")
     fecha_hasta: Optional[str] = Field(default=None, description="Fecha fin YYYY-MM-DD")
     plazo: Optional[str] = Field(default=None, description="'48h', '7d', '30d' o 'todas'")
-    sort: Optional[str] = Field(default="relevance", description="'relevance', 'date', 'value', 'deadline'")
+    sort: Optional[str] = Field(default="relevance", description="'relevance', 'date', 'value', 'deadline', 'match'")
     limit: Optional[int] = Field(default=100, ge=1, le=50000)
     offset: Optional[int] = Field(default=0, ge=0)
 
@@ -46,11 +50,9 @@ def build_search_query(filters: TenderFilters) -> Tuple[Any, Optional[Any]]:
     # 1. Búsqueda de Texto Completo (Full-Text Search con unaccent y español)
     if filters.q and filters.q.strip():
         q_raw = filters.q.strip()
-        # Generar tsquery seguro usando websearch_to_tsquery con f_unaccent
         tsquery = func.websearch_to_tsquery("spanish", func.f_unaccent(q_raw))
         rank_expr = func.ts_rank_cd(TenderModel.search_vector, tsquery)
 
-        # Condición híbrida: Coincidencia FTS sobre search_vector OR coincidencia exacta por código
         is_code_like = bool(re.search(r"[-_/0-9]", q_raw) or len(q_raw) <= 15)
         if is_code_like:
             code_pat = f"%{q_raw}%"
@@ -60,6 +62,7 @@ def build_search_query(filters: TenderFilters) -> Tuple[Any, Optional[Any]]:
                     TenderModel.ocid.ilike(code_pat),
                     TenderModel.id_proceso.ilike(code_pat),
                     TenderModel.titulo.ilike(code_pat),
+                    TenderModel.entidad_nombre.ilike(code_pat),
                 )
             )
         else:
@@ -79,13 +82,59 @@ def build_search_query(filters: TenderFilters) -> Tuple[Any, Optional[Any]]:
     if filters.rubro and filters.rubro.strip().lower() not in ["todos", "all", ""]:
         stmt = stmt.where(TenderModel.rubro == filters.rubro.strip())
 
-    # 5. Filtro Rango de Montos
+    # 5. Filtro Región
+    if filters.region and filters.region.strip().lower() not in ["todas", "todos", "all", ""]:
+        reg_clean = filters.region.strip()
+        stmt = stmt.where(
+            or_(
+                TenderModel.region.ilike(f"%{reg_clean}%"),
+                TenderModel.titulo.ilike(f"%{reg_clean}%"),
+            )
+        )
+
+    # 6. Filtro Entidad
+    if filters.entidad and filters.entidad.strip().lower() not in ["todas", "todos", "all", ""]:
+        ent_clean = filters.entidad.strip()
+        stmt = stmt.where(TenderModel.entidad_nombre.ilike(f"%{ent_clean}%"))
+
+    # 7. Filtro Tipo de Proceso (MC, AS, SIE, CP, LP)
+    if filters.tipo_proceso and filters.tipo_proceso.strip().lower() not in ["todos", "all", ""]:
+        stmt = stmt.where(TenderModel.tipo_proceso == filters.tipo_proceso.strip().upper())
+
+    # 8. Filtro Contrataciones Menores (<= 8 UIT)
+    if filters.solo_menores is True:
+        stmt = stmt.where(TenderModel.es_menor_cuantia.is_(True))
+
+    # 9. Filtro Rango de Montos
     if filters.monto_min is not None:
         stmt = stmt.where(TenderModel.monto_estimado >= filters.monto_min)
     if filters.monto_max is not None:
         stmt = stmt.where(TenderModel.monto_estimado <= filters.monto_max)
 
-    # 6. Filtro Fechas
+    # 10. Filtro Plazo de Ofertas
+    if filters.plazo and filters.plazo.strip().lower() not in ["todas", "todos", "all", ""]:
+        p_clean = filters.plazo.strip().lower()
+        now = datetime.utcnow()
+        if p_clean == "48h":
+            stmt = stmt.where(
+                TenderModel.fecha_limite.isnot(None),
+                TenderModel.fecha_limite >= now - timedelta(hours=2),
+                TenderModel.fecha_limite <= now + timedelta(hours=48)
+            )
+        elif p_clean == "7d":
+            stmt = stmt.where(
+                TenderModel.fecha_limite.isnot(None),
+                TenderModel.fecha_limite >= now - timedelta(hours=2),
+                TenderModel.fecha_limite <= now + timedelta(days=7)
+            )
+        elif p_clean == "30d":
+            stmt = stmt.where(
+                TenderModel.fecha_limite.isnot(None),
+                TenderModel.fecha_limite >= now - timedelta(hours=2),
+                TenderModel.fecha_limite <= now + timedelta(days=30)
+            )
+
+    # 11. Filtro Fechas de Lanzamiento
     today_date = datetime.now().date()
     if filters.fecha:
         f_clean = filters.fecha.strip().lower()
@@ -112,16 +161,20 @@ def build_search_query(filters: TenderFilters) -> Tuple[Any, Optional[Any]]:
         except ValueError:
             pass
 
-    # 7. Ordenamiento
+    # 12. Ordenamiento
     sort_mode = (filters.sort or "relevance").lower()
     if sort_mode == "relevance" and rank_expr is not None:
         stmt = stmt.order_by(rank_expr.desc(), TenderModel.fecha_lanzamiento.desc().nullslast())
     elif sort_mode == "value":
         stmt = stmt.order_by(TenderModel.monto_estimado.desc().nullslast(), TenderModel.fecha_lanzamiento.desc().nullslast())
+    elif sort_mode == "deadline":
+        stmt = stmt.order_by(TenderModel.fecha_limite.asc().nullslast(), TenderModel.fecha_lanzamiento.desc().nullslast())
+    elif sort_mode == "match":
+        stmt = stmt.order_by(TenderModel.rubro_confianza.desc().nullslast(), TenderModel.fecha_lanzamiento.desc().nullslast())
     else:  # 'date' u otros
         stmt = stmt.order_by(TenderModel.fecha_lanzamiento.desc().nullslast())
 
-    # 8. Paginación
+    # 13. Paginación
     if filters.limit:
         stmt = stmt.limit(filters.limit)
     if filters.offset:
@@ -152,14 +205,14 @@ async def get_search_suggestions(session, query_prefix: str, limit: int = 8) -> 
                 "label": f"Rubro: {rubro}"
             })
 
-    # 2. Sugerir títulos de convocatorias existentes en la BD
+    # 2. Sugerir títulos y entidades de convocatorias existentes en la BD
     try:
-        # Búsqueda por prefijo ILIKE y FTS sobre títulos
         stmt_tenders = (
-            select(TenderModel.ocid, TenderModel.titulo, TenderModel.rubro)
+            select(TenderModel.ocid, TenderModel.titulo, TenderModel.rubro, TenderModel.entidad_nombre)
             .where(
                 or_(
                     TenderModel.titulo.ilike(f"%{q}%"),
+                    TenderModel.entidad_nombre.ilike(f"%{q}%"),
                     TenderModel.descripcion_limpia.ilike(f"%{q}%"),
                     TenderModel.ocid.ilike(f"%{q}%")
                 )
@@ -176,7 +229,8 @@ async def get_search_suggestions(session, query_prefix: str, limit: int = 8) -> 
                 "ocid": r.ocid,
                 "texto": r.titulo or r.ocid,
                 "rubro": r.rubro or "General",
-                "label": r.titulo or r.ocid
+                "entidad": r.entidad_nombre or "",
+                "label": f"{r.titulo or r.ocid}"
             })
             if len(suggestions) >= limit:
                 break

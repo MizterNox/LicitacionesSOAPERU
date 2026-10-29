@@ -115,12 +115,12 @@ def generate_csv_bytes(rows: List[TenderModel]) -> bytes:
 
     for t in rows:
         raw = t.raw_payload if isinstance(t.raw_payload, dict) else {}
-        entidad = extract_entidad(raw)
+        entidad = getattr(t, "entidad_nombre", None) or extract_entidad(raw)
         desc_limpia = t.descripcion_limpia or t.descripcion or t.titulo or ""
         desc_orig = t.descripcion or t.titulo or ""
-        region = extract_region(raw, desc_limpia)
+        region = getattr(t, "region", None) or extract_region(raw, desc_limpia)
         f_pub = t.fecha_lanzamiento.strftime("%Y-%m-%d") if t.fecha_lanzamiento else ""
-        f_limite = extract_fecha_limite(raw, t.fecha_lanzamiento)
+        f_limite = t.fecha_limite.strftime("%Y-%m-%d") if getattr(t, "fecha_limite", None) else extract_fecha_limite(raw, t.fecha_lanzamiento)
         monto = float(t.monto_estimado) if t.monto_estimado is not None else 0.0
         palabras = ", ".join(t.palabras_clave) if isinstance(t.palabras_clave, list) else ""
 
@@ -192,12 +192,12 @@ def generate_xlsx_bytes(rows: List[TenderModel]) -> bytes:
 
     for row_idx, t in enumerate(rows, start=2):
         raw = t.raw_payload if isinstance(t.raw_payload, dict) else {}
-        entidad = extract_entidad(raw)
+        entidad = getattr(t, "entidad_nombre", None) or extract_entidad(raw)
         desc_limpia = t.descripcion_limpia or t.descripcion or t.titulo or ""
         desc_orig = t.descripcion or t.titulo or ""
-        region = extract_region(raw, desc_limpia)
+        region = getattr(t, "region", None) or extract_region(raw, desc_limpia)
         f_pub = t.fecha_lanzamiento.strftime("%Y-%m-%d") if t.fecha_lanzamiento else ""
-        f_limite = extract_fecha_limite(raw, t.fecha_lanzamiento)
+        f_limite = t.fecha_limite.strftime("%Y-%m-%d") if getattr(t, "fecha_limite", None) else extract_fecha_limite(raw, t.fecha_lanzamiento)
         monto = float(t.monto_estimado) if t.monto_estimado is not None else 0.0
         palabras = ", ".join(t.palabras_clave) if isinstance(t.palabras_clave, list) else ""
 
