@@ -2,6 +2,7 @@
 // Colapsable en desktop, off-canvas con backdrop en mobile.
 
 import { useApp } from '../../store/AppState.jsx'
+import { useAuth } from '../../store/AuthContext.jsx'
 import { Icon, LogoMark } from '../ui/Icon.jsx'
 
 const NAV = [
@@ -62,6 +63,7 @@ function NavItem({ it, active, collapsed }) {
 
 export default function Sidebar() {
   const { state, dispatch } = useApp()
+  const { user, openAuthModal, logout } = useAuth()
   const c = state.sidebarCollapsed
 
   return (
@@ -122,18 +124,32 @@ export default function Sidebar() {
           </button>
         </div>
 
-        <div className="flex items-center gap-2.5 rounded-xl border border-white/5 bg-white/[0.03] p-2.5">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-fuchsia-500 text-[11px] font-bold text-white">
-            MG
-          </span>
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-[13px] font-bold text-white">María Gamarra</p>
-            <p className="truncate text-[11px] text-ink-400">Plan Pro · 5 días de prueba</p>
+        {user ? (
+          <div className="flex items-center gap-2.5 rounded-xl border border-white/5 bg-white/[0.03] p-2.5">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-fuchsia-500 text-[11px] font-bold text-white uppercase">
+              {user.nombre ? user.nombre.slice(0, 2) : 'US'}
+            </span>
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-[13px] font-bold text-white">{user.nombre}</p>
+              <p className="truncate text-[10px] text-ink-400 capitalize">{user.rol} · {user.email}</p>
+            </div>
+            <button
+              onClick={logout}
+              className="icon-btn-dark hover:text-red-400"
+              title="Cerrar sesión"
+            >
+              <Icon name="log-out" className="h-4 w-4" />
+            </button>
           </div>
-          <button className="icon-btn-dark" title="Ajustes de cuenta">
-            <Icon name="settings" className="h-4 w-4" />
+        ) : (
+          <button
+            onClick={() => openAuthModal('login')}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-3 py-2 text-xs font-bold text-white shadow-md hover:bg-brand-500 transition-colors"
+          >
+            <Icon name="user" className="h-4 w-4" />
+            Iniciar Sesión
           </button>
-        </div>
+        )}
       </div>
     </aside>
   )

@@ -1,0 +1,22 @@
+node_modules/
+.DS_Store
+*.log
+__pycache__/
+*.pyc
+frontend/dist/
+licitaciones_engine/.ruff_cache
+licitaciones_engine/venv
+
+# Entorno virtual y cachés
+venv/
+.venv/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+backend/backups/
+backups/
+
+# Secretos (NUNCA versionar): solo se sube .env.example
+.env
+.env.*
+!.env.example

@@ -1,9 +1,10 @@
 // Panel de detalle (split-screen) — renderizado con el registro completo del mock.
 
+import { useState } from 'react'
 import { useApp } from '../../store/AppState.jsx'
 import { Icon } from '../ui/Icon.jsx'
 import Timeline from './Timeline.jsx'
-import { ScoreRing, TypeBadge, StatusBadge } from './badges.jsx'
+import { ScoreRing, TypeBadge, StatusBadge, RubroBadge } from './badges.jsx'
 import { fmtPEN, fmtDate, daysUntil } from '../../utils/format.js'
 
 function Meta({ label, value }) {
@@ -71,6 +72,7 @@ function OfferCallout({ bid }) {
 
 export default function DetailPanel({ bid }) {
   const { dispatch } = useApp()
+  const [showOriginal, setShowOriginal] = useState(false)
   const close = () => dispatch({ type: 'CLOSE_DETAIL' })
   const matchTone = bid.match_score >= 85 ? 'text-emerald-600' : bid.match_score >= 60 ? 'text-brand-600' : 'text-slate-400'
   const matchLabel = bid.match_score >= 85 ? 'Alta' : bid.match_score >= 60 ? 'Media' : 'Baja'
@@ -90,9 +92,42 @@ export default function DetailPanel({ bid }) {
               <TypeBadge tipo={bid.tipo_proceso} />
               <span className="font-mono text-[11px] font-semibold tracking-tight text-slate-400">{bid.codigo_seace}</span>
               <StatusBadge estado={bid.estado} />
+              {bid.rubro && <RubroBadge rubro={bid.rubro} />}
             </div>
             <h2 className="mt-2 text-[15px] font-bold leading-snug text-slate-900">{bid.objeto}</h2>
-            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500">
+
+            {/* Palabras clave extraídas por IA */}
+            {bid.palabras_clave && bid.palabras_clave.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {bid.palabras_clave.map((kw) => (
+                  <span key={kw} className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                    #{kw}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Toggle para comparar con descripción original cruda */}
+            {bid.descripcion_original && bid.descripcion_original !== bid.descripcion_limpia && (
+              <div className="mt-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowOriginal(!showOriginal)}
+                  className="text-[11px] font-semibold text-brand-600 hover:text-brand-700 hover:underline flex items-center gap-1"
+                >
+                  <Icon name="file-text" className="h-3 w-3" />
+                  {showOriginal ? 'Ocultar texto original OECE' : 'Ver texto original sin procesar'}
+                </button>
+                {showOriginal && (
+                  <div className="mt-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-600 font-mono leading-relaxed max-h-36 overflow-y-auto scroll-thin">
+                    <p className="text-[10px] font-bold uppercase text-slate-400 mb-1">Texto crudo de la API gubernamental:</p>
+                    {bid.descripcion_original}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
               <Icon name="building-2" className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{bid.entidad}</span>
               <span className="text-slate-300">·</span>

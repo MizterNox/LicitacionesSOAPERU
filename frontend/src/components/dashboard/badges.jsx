@@ -74,3 +74,31 @@ export function TipoObjetoBadge({ tipo }) {
     </span>
   )
 }
+
+// Rubro clasificado por IA (taxonomía oficial)
+const RUBRO_STYLES = {
+  'Tecnología y Software': 'bg-indigo-50 text-indigo-700 ring-indigo-500/20',
+  'Construcción e Infraestructura': 'bg-amber-50 text-amber-700 ring-amber-500/20',
+  'Salud y Farmacia': 'bg-rose-50 text-rose-700 ring-rose-500/20',
+  'Consultoría y Asesoría': 'bg-purple-50 text-purple-700 ring-purple-500/20',
+  'Mantenimiento y Limpieza': 'bg-teal-50 text-teal-700 ring-teal-500/20',
+  'Seguridad y Vigilancia': 'bg-blue-50 text-blue-700 ring-blue-500/20',
+  'Transporte y Logística': 'bg-cyan-50 text-cyan-700 ring-cyan-500/20',
+  'Alimentos': 'bg-orange-50 text-orange-700 ring-orange-500/20',
+  'Educación y Capacitación': 'bg-emerald-50 text-emerald-700 ring-emerald-500/20',
+  'Equipamiento y Mobiliario': 'bg-violet-50 text-violet-700 ring-violet-500/20',
+  'Servicios Generales': 'bg-slate-100 text-slate-700 ring-slate-400/20',
+  'Otros': 'bg-slate-50 text-slate-600 ring-slate-300/20',
+}
+
+export function RubroBadge({ rubro, className = '' }) {
+  if (!rubro) return null
+  const style = RUBRO_STYLES[rubro] || 'bg-brand-50 text-brand-700 ring-brand-500/20'
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${style} ${className}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70"></span>
+      {rubro}
+    </span>
+  )
+}
+

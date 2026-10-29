@@ -17,6 +17,7 @@ export const DEFAULT_FILTERS = {
   region: 'todas',
   estado: 'Vigente', // 'todos' | 'Vigente' | 'Finalizado' (Vigente por defecto)
   tipoObjeto: 'todos', // 'todos' | 'Bienes' | 'Servicios' | 'Obras'
+  rubro: 'todos', // 'todos' | 'Tecnología y Software' | ...
   valorMin: '',
   valorMax: '',
   plazo: 'todas', // 'todas' | '48h' | '7d' | '30d'
@@ -37,6 +38,7 @@ const initialState = {
   filters: { ...DEFAULT_FILTERS },
   cronStatus: null, // Datos de la última ejecución del cron
   tiposConfig: ['Servicios', 'Bienes', 'Obras'], // Tipos activos
+  rubrosList: [], // Lista de rubros obtenida desde /api/v1/rubros
 }
 
 function reducer(state, action) {
@@ -57,6 +59,8 @@ function reducer(state, action) {
       return { ...state, cronStatus: action.payload }
     case 'SET_TIPOS_CONFIG':
       return { ...state, tiposConfig: action.payload }
+    case 'SET_RUBROS_LIST':
+      return { ...state, rubrosList: action.payload }
     case 'SET_VIEW':
       return { ...state, view: action.view, mobileNavOpen: false, selectedId: null }
     case 'SELECT_BID':

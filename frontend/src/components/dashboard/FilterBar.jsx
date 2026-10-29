@@ -1,9 +1,11 @@
 // Filtros colapsables — conectados reactivamente con PostgreSQL y FastAPI.
 // Cada control es "controlado": value ← state, onChange → dispatch(SET_FILTER).
 
-import { useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useApp, getTodayDateString } from '../../store/AppState.jsx'
+import { useAuth } from '../../store/AuthContext.jsx'
 import { Icon } from '../ui/Icon.jsx'
+import { SaveFilterModal } from './SaveFilterModal.jsx'
 
 const TIPOS = ['Todos', 'LP', 'CP', 'MS', 'AS', 'MC']
 const PLAZOS = [
@@ -19,6 +21,8 @@ function Chevron() {
 
 export default function FilterBar() {
   const { state, dispatch } = useApp()
+  const { user, openAuthModal } = useAuth()
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false)
   const f = state.filters
   const convocatorias = state.convocatorias || []
   const set = (key, value) => dispatch({ type: 'SET_FILTER', key, value })
@@ -39,6 +43,7 @@ export default function FilterBar() {
     (f.region !== 'todas' ? 1 : 0) +
     (f.estado !== 'todos' ? 1 : 0) +
     (f.tipoObjeto !== 'todos' ? 1 : 0) +
+    (f.rubro && f.rubro !== 'todos' ? 1 : 0) +
     (f.valorMin !== '' ? 1 : 0) +
     (f.valorMax !== '' ? 1 : 0) +
     (f.plazo !== 'todas' ? 1 : 0) +
@@ -52,8 +57,25 @@ export default function FilterBar() {
           {active ? <span className="chip bg-brand-50 text-brand-700">{active} activo{active > 1 ? 's' : ''}</span> : null}
           {state.isLoading && <span className="text-xs text-brand-600 animate-pulse font-medium">· Actualizando convocatorias...</span>}
         </span>
-        <div className="ml-auto flex items-center gap-1">
-          <button onClick={() => dispatch({ type: 'CLEAR_FILTERS' })} className="btn-ghost h-8 px-2.5 text-xs">
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              if (!user) {
+                openAuthModal('login')
+              } else {
+                setIsSaveModalOpen(true)
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition-colors shadow-xs"
+            title="Guardar esta búsqueda y recibir alertas por correo"
+            id="btn-guardar-busqueda"
+          >
+            <Icon name="bell" className="h-3.5 w-3.5 text-amber-600" />
+            <span className="hidden sm:inline">Guardar búsqueda</span>
+          </button>
+
+          <button onClick={() => dispatch({ type: 'CLEAR_FILTERS' })} className="btn-ghost h-8 px-2 text-xs">
             Limpiar
           </button>
           <button
@@ -102,6 +124,29 @@ export default function FilterBar() {
                     {obj.label}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Rubro (Clasificación por IA) */}
+            <div>
+              <label htmlFor="f-rubro" className="field-label flex items-center gap-1.5">
+                <Icon name="tag" className="h-3 w-3 text-brand-600" /> Rubro (IA)
+              </label>
+              <div className="relative">
+                <select
+                  id="f-rubro"
+                  value={f.rubro || 'todos'}
+                  onChange={(e) => set('rubro', e.target.value)}
+                  className="field appearance-none pr-8 font-medium text-xs text-slate-800"
+                >
+                  <option value="todos">Todos los Rubros</option>
+                  {(state.rubrosList || []).map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.label} ({r.total})
+                    </option>
+                  ))}
+                </select>
+                <Chevron />
               </div>
             </div>
 
@@ -237,8 +282,24 @@ export default function FilterBar() {
             <span>Base de datos oficial de contrataciones del Estado (SEACE / OECE)</span>
             <span>{convocatorias.length} procesos vigentes</span>
           </div>
+          <div className="mt-3 pt-2 border-t border-slate-200 sm:hidden">
+            <button
+              type="button"
+              onClick={() => dispatch({ type: 'TOGGLE_FILTERS' })}
+              className="btn-primary w-full h-8.5 text-xs justify-center shadow-sm"
+            >
+              Ver {convocatorias.length} resultados
+            </button>
+          </div>
         </div>
       )}
+
+      <SaveFilterModal
+        isOpen={isSaveModalOpen}
+        onClose={() => setIsSaveModalOpen(false)}
+        currentFilters={f}
+        query={state.query}
+      />
     </section>
   )
 }

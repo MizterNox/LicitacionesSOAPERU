@@ -8,23 +8,27 @@ from database import AsyncSessionLocal
 from models.tenders import TenderModel
 from etl.extractor import OCESCExtractor
 from etl.transformer import transform_and_filter_releases
+from services.ai_enricher import ai_enricher
+from config import settings
 
 logger = logging.getLogger(__name__)
 
-async def guardar_releases_en_db(records_to_save: List[Dict[str, Any]]) -> Dict[str, int]:
+async def guardar_releases_en_db(records_to_save: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Carga los registros transformados en PostgreSQL con validación de no-sobreescritura (Opción B):
-    - Si el registro no existe: INSERT.
+    - Si el registro no existe: INSERT con campos base y enriquecimiento de IA.
     - Si el registro ya existe con el MISMO estado: IGNORAR (DO NOTHING, preservando intacto el registro).
-    - Si el registro ya existe pero su estado CAMBIÓ: UPDATE del estado y payload, preservando fecha_lanzamiento y created_at.
+    - Si el registro ya existe pero su estado CAMBIÓ: UPDATE del estado, payload y datos IA.
+    Retorna además la lista de `nuevos_ocids` para el sistema de alertas.
     """
     if not records_to_save:
         print("[LOADER] No hay registros para guardar en base de datos.")
-        return {"total_guardados": 0, "nuevos": 0, "actualizados": 0, "ignorados": 0}
+        return {"total_guardados": 0, "nuevos": 0, "actualizados": 0, "ignorados": 0, "nuevos_ocids": []}
 
     nuevos = 0
     actualizados = 0
     ignorados = 0
+    nuevos_ocids = []
 
     from sqlalchemy import select
 
@@ -48,21 +52,30 @@ async def guardar_releases_en_db(records_to_save: List[Dict[str, Any]]) -> Dict[
                     stmt_insert = insert(TenderModel).values(**values)
                     await session.execute(stmt_insert)
                     nuevos += 1
+                    nuevos_ocids.append(ocid)
                 else:
                     estado_anterior = existing_map[ocid]
                     estado_nuevo = values.get("estado")
                     if estado_anterior != estado_nuevo:
                         # El estado ha cambiado (ej. Vigente -> Adjudicado): actualizar campos permitidos
-                        # preservando fecha_lanzamiento y created_at original
+                        set_fields = {
+                            "estado": values.get("estado"),
+                            "titulo": values.get("titulo"),
+                            "descripcion": values.get("descripcion"),
+                            "monto_estimado": values.get("monto_estimado"),
+                            "raw_payload": values.get("raw_payload")
+                        }
+                        # Actualizar campos de IA si vienen en el payload
+                        for ai_col in [
+                            "descripcion_limpia", "rubro", "rubro_confianza",
+                            "palabras_clave", "ia_estado", "ia_hash", "ia_procesado_en"
+                        ]:
+                            if ai_col in values and values.get(ai_col) is not None:
+                                set_fields[ai_col] = values.get(ai_col)
+
                         stmt_update = insert(TenderModel).values(**values).on_conflict_do_update(
                             index_elements=[TenderModel.ocid],
-                            set_={
-                                "estado": values.get("estado"),
-                                "titulo": values.get("titulo"),
-                                "descripcion": values.get("descripcion"),
-                                "monto_estimado": values.get("monto_estimado"),
-                                "raw_payload": values.get("raw_payload")
-                            }
+                            set_=set_fields
                         )
                         await session.execute(stmt_update)
                         actualizados += 1
@@ -76,7 +89,8 @@ async def guardar_releases_en_db(records_to_save: List[Dict[str, Any]]) -> Dict[
         "total_guardados": total_guardados,
         "nuevos": nuevos,
         "actualizados": actualizados,
-        "ignorados": ignorados
+        "ignorados": ignorados,
+        "nuevos_ocids": nuevos_ocids
     }
 
 class ELTOrchestrator:
@@ -137,6 +151,17 @@ class ELTOrchestrator:
         total_filtrados = len(records_transformados)
         print(f"[TRANSFORM] Releases vigentes filtrados y listos: {total_filtrados} (de {total_extraidos} extraídos)")
 
+        # 2.5 Fase de Enriquecimiento IA (Gemini)
+        total_enriquecidos_ia = 0
+        if settings.AI_ENABLED and records_transformados:
+            print(f"[AI] Enriqueciendo {total_filtrados} convocatorias con Gemini ({settings.GEMINI_MODEL})...")
+            try:
+                records_transformados = await ai_enricher.enrich_records(records_transformados)
+                total_enriquecidos_ia = sum(1 for r in records_transformados if r.get("ia_estado") == "OK")
+                print(f"[AI] Enriquecimiento finalizado: {total_enriquecidos_ia} procesados por IA, {total_filtrados - total_enriquecidos_ia} fallback/pendientes.")
+            except Exception as e_ai:
+                print(f"[AI WARN] Error al ejecutar enriquecimiento IA: {e_ai}. Continuando con fallback...")
+
         # 3. Fase de Carga (PostgreSQL con validación de no sobreescritura)
         save_stats = await guardar_releases_en_db(records_transformados)
 
@@ -144,10 +169,12 @@ class ELTOrchestrator:
             "status": "success",
             "total_extraidos": total_extraidos,
             "total_filtrados_vigentes": total_filtrados,
+            "total_enriquecidos_ia": total_enriquecidos_ia,
             "total_guardados_db": save_stats["total_guardados"],
             "total_nuevos": save_stats["nuevos"],
             "total_actualizados": save_stats["actualizados"],
             "total_ignorados": save_stats["ignorados"],
+            "nuevos_ocids": save_stats.get("nuevos_ocids", []),
             "config": {
                 "objeto": objeto,
                 "estado": estado,

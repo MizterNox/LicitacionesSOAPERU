@@ -6,19 +6,15 @@ import { daysUntil } from '../utils/format.js'
 
 export function selectVisible(state) {
   const f = state.filters
-  const q = (state.query || '').trim().toLowerCase()
   const listData = state.convocatorias || []
 
   let list = listData.filter((c) => {
-    if (q) {
-      const hay = `${c.codigo_seace || ''} ${c.entidad || ''} ${c.objeto || ''} ${c.region || ''}`.toLowerCase()
-      if (!hay.includes(q)) return false
-    }
     if (f.tipo !== 'Todos' && c.tipo_proceso !== f.tipo) return false
     if (f.entidad !== 'todas' && c.entidad !== f.entidad) return false
     if (f.region !== 'todas' && c.region !== f.region) return false
     if (f.estado !== 'todos' && c.estado !== f.estado) return false
     if (f.tipoObjeto !== 'todos' && c.tipo_objeto !== f.tipoObjeto) return false
+    if (f.rubro && f.rubro !== 'todos' && c.rubro !== f.rubro) return false
     if (f.valorMin !== '' && (c.valor_estimado ?? 0) < Number(f.valorMin)) return false
     if (f.valorMax !== '' && c.valor_estimado != null && c.valor_estimado > Number(f.valorMax)) return false
     if (f.plazo !== 'todas') {

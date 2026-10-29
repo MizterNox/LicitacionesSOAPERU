@@ -1,0 +1,24 @@
+LicitLens · Alertas Inteligentes (SEACE / OECE Perú)
+==================================================
+
+Hola, {{ user_nombre }}
+
+Se han detectado {{ total_oportunidades }} nueva(s) convocatoria(s) que coinciden con tus filtros de búsqueda guardados:
+
+{% for filtro in filtros_coincidentes %}
+--------------------------------------------------
+★ FILTRO: {{ filtro.nombre_filtro }}
+--------------------------------------------------
+{% for t in filtro.oportunidades %}
+- [{{ t.id_proceso or t.ocid }}] {{ t.titulo }}
+  Rubro: {{ t.rubro or 'General' }}
+  Monto: {% if t.monto_estimado %}S/ {{ "{:,.2f}".format(t.monto_estimado) }}{% else %}Por determinar{% endif %}
+  Enlace: {{ frontend_url }}?q={{ t.ocid }}
+
+{% endfor %}
+{% endfor %}
+
+Para gestionar tus filtros o cambiar la frecuencia de notificación, ingresa a:
+{{ frontend_url }}?view=alertas
+
+© 2026 LicitLens · Plataforma de Inteligencia en Contrataciones Públicas del Perú.

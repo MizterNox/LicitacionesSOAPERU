@@ -24,6 +24,13 @@ from models.cron_log import CronExecutionModel
 from models.settings import AppSettingModel
 from etl.extractor import OCESCExtractor
 from etl.loader import ELTOrchestrator
+from services.search import TenderFilters, build_search_query, get_search_suggestions
+from services.ai_enricher import RUBROS_VALIDOS
+from services.alert_matcher import run_alert_matching
+from api.routers.export import router as export_router
+from api.routers.metrics import router as metrics_router
+from api.routers.auth import router as auth_router
+from api.routers.saved_filters import router as saved_filters_router
 from config import settings
 
 API_URL = settings.API_URL
@@ -107,6 +114,7 @@ async def job_etl_programado():
     total_extraidos_gen = 0
     total_guardados_gen = 0
     total_ignorados_gen = 0
+    nuevos_ocids_gen = []
     detalles_por_tipo = {}
     error_str = None
 
@@ -123,21 +131,36 @@ async def job_etl_programado():
                 ext = res.get("total_extraidos", 0)
                 guardados = res.get("total_guardados_db", 0)
                 ignorados = res.get("total_ignorados", 0)
+                nuevos_tipo = res.get("nuevos_ocids", [])
+                nuevos_ocids_gen.extend(nuevos_tipo)
                 total_extraidos_gen += ext
                 total_guardados_gen += guardados
                 total_ignorados_gen += ignorados
                 detalles_por_tipo[obj] = res
-                print(f"[SCHEDULER] -> {obj}: {guardados} persistidos/actualizados, {ignorados} no sobreescritos")
+                print(f"[SCHEDULER] -> {obj}: {guardados} persistidos/actualizados ({len(nuevos_tipo)} nuevos), {ignorados} no sobreescritos")
             except Exception as e_obj:
                 print(f"[SCHEDULER] Error al procesar {obj}: {e_obj}")
                 detalles_por_tipo[obj] = {"error": str(e_obj)}
+
+        # Cruce automático de alertas para las convocatorias nuevas
+        alertas_resultado = None
+        if nuevos_ocids_gen:
+            print(f"[SCHEDULER] Ejecutando cruce de alertas para {len(nuevos_ocids_gen)} nuevas convocatorias...")
+            try:
+                alertas_resultado = await run_alert_matching(nuevos_ocids=nuevos_ocids_gen)
+                detalles_por_tipo["alertas"] = alertas_resultado
+                print(f"[SCHEDULER] Cruce de alertas finalizado: {alertas_resultado.get('total_coincidencias', 0)} coincidencias, {alertas_resultado.get('alertas_registradas', 0)} registradas.")
+            except Exception as e_alert:
+                print(f"[SCHEDULER WARN] Error en cruce de alertas: {e_alert}")
+                detalles_por_tipo["alertas"] = {"error": str(e_alert)}
 
         estado_final = "COMPLETED"
         ultimo_estado_etl["status"] = "completed"
         ultimo_estado_etl["resultado"] = {
             "mensaje": f"ETL automático finalizado. Total guardados: {total_guardados_gen}, No sobreescritos: {total_ignorados_gen}",
             "fecha": hoy_str,
-            "tipos": tipos_a_ejecutar
+            "tipos": tipos_a_ejecutar,
+            "alertas": alertas_resultado
         }
         print(f"[SCHEDULER] Fin de ejecución programada. Total guardados: {total_guardados_gen}, No sobreescritos: {total_ignorados_gen}\n")
     except Exception as exc:
@@ -167,13 +190,14 @@ async def job_etl_programado():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Asegurar creación automática de nuevas tablas en PostgreSQL
+    # Verificar conectividad con PostgreSQL
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        print("[FASTAPI LIFESPAN] Tablas de Base de Datos sincronizadas correctamente.")
+        from sqlalchemy import text
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        print("[FASTAPI LIFESPAN] Conexión a Base de Datos PostgreSQL verificada correctamente.")
     except Exception as e:
-        print(f"[FASTAPI LIFESPAN ERROR] Error al sincronizar tablas: {e}")
+        print(f"[FASTAPI LIFESPAN ERROR] Error al conectar con la base de datos: {e}")
 
     # 1. Rutina de Día / Tarde (14:00 PM) - Captura publicaciones de la mañana
     scheduler.add_job(job_etl_programado, 'cron', hour=14, minute=0, id='job_dia')
@@ -270,6 +294,19 @@ async def ejecutar_etl_task(config: ETLConfigRequest):
             fecha_hasta=fecha_fin,
             max_pages=config.max_pages
         )
+
+        # Cruce automático de alertas para las convocatorias nuevas extraídas
+        nuevos = resultado.get("nuevos_ocids", [])
+        if nuevos:
+            print(f"[MANUAL RUN] Ejecutando cruce de alertas para {len(nuevos)} convocatorias...")
+            try:
+                alertas_res = await run_alert_matching(nuevos_ocids=nuevos)
+                resultado["alertas"] = alertas_res
+                print(f"[MANUAL RUN] Cruce de alertas finalizado: {alertas_res.get('total_coincidencias', 0)} coincidencias.")
+            except Exception as e_alert:
+                print(f"[MANUAL RUN WARN] Error en cruce de alertas: {e_alert}")
+                resultado["alertas"] = {"error": str(e_alert)}
+
         ultimo_estado_etl["status"] = "completed"
         ultimo_estado_etl["resultado"] = resultado
 
@@ -412,49 +449,41 @@ async def get_licitaciones(
     vigentes: Optional[bool] = Query(default=True, description="Filtrar solo convocatorias activas/vigentes"),
     fecha: Optional[str] = Query(default="hoy", description="'hoy' para fecha actual, 'todos' para omitir filtro de fecha, o YYYY-MM-DD"),
     tipo: Optional[str] = Query(default="todos", description="Objeto contractual: 'Bienes', 'Servicios', 'Obras' o 'todos'"),
-    search: Optional[str] = Query(default=None, description="Búsqueda por texto en código SEACE, título o descripción")
+    search: Optional[str] = Query(default=None, description="Búsqueda por texto en código SEACE, título o descripción"),
+    q: Optional[str] = Query(default=None, description="Término de búsqueda Full-Text Search (FTS)"),
+    rubro: Optional[str] = Query(default=None, description="Rubro normalizado por IA"),
+    monto_min: Optional[float] = Query(default=None, description="Monto estimado mínimo"),
+    monto_max: Optional[float] = Query(default=None, description="Monto estimado máximo"),
+    fecha_desde: Optional[str] = Query(default=None, description="Fecha de inicio (YYYY-MM-DD)"),
+    fecha_hasta: Optional[str] = Query(default=None, description="Fecha de fin (YYYY-MM-DD)"),
+    sort: Optional[str] = Query(default="relevance", description="'relevance', 'date', 'value'"),
+    limit: int = Query(default=100, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0)
 ):
     """
     Endpoint principal para el Frontend React:
-    Retorna los procesos de licitación almacenados en PostgreSQL con formato y props
-    idénticas a las esperadas por los componentes visuales (BiddingTable, DetailPanel, KpiRow).
+    Retorna los procesos de licitación almacenados en PostgreSQL optimizados con Full-Text Search,
+    ponderaciones (A=título, B=descripción limpia, C=rubro) y ranking por relevancia.
     """
+    query_text = (q or search or "").strip() or None
+
+    filter_params = TenderFilters(
+        q=query_text,
+        vigentes=vigentes,
+        tipo=tipo,
+        rubro=rubro,
+        monto_min=monto_min,
+        monto_max=monto_max,
+        fecha=fecha,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        sort=sort or "relevance",
+        limit=limit,
+        offset=offset
+    )
+
     async with AsyncSessionLocal() as session:
-        query = select(TenderModel)
-
-        # 1. Filtro Vigentes
-        if vigentes is True:
-            query = query.where(TenderModel.estado.ilike("%Vigente%"))
-        elif vigentes is False:
-            query = query.where(~TenderModel.estado.ilike("%Vigente%"))
-
-        # 2. Filtro Tipo de Objeto
-        if tipo and tipo.lower() not in ["todos", "all", ""]:
-            query = query.where(TenderModel.objeto_contratacion.ilike(f"%{tipo.strip()}%"))
-
-        # 3. Filtro Fecha (Opción A: comparación por fecha exacta)
-        hoy_date = datetime.now().date()
-        if fecha:
-            fecha_clean = fecha.strip().lower()
-            if fecha_clean == "hoy":
-                query = query.where(func.date(TenderModel.fecha_lanzamiento) == hoy_date)
-            elif fecha_clean not in ["todos", "all", ""]:
-                try:
-                    dt = datetime.fromisoformat(fecha_clean).date()
-                    query = query.where(func.date(TenderModel.fecha_lanzamiento) == dt)
-                except ValueError:
-                    pass
-
-        # 4. Filtro Búsqueda
-        if search and search.strip():
-            pat = f"%{search.strip()}%"
-            query = query.where(
-                TenderModel.titulo.ilike(pat) |
-                TenderModel.descripcion.ilike(pat) |
-                TenderModel.ocid.ilike(pat)
-            )
-
-        query = query.order_by(desc(TenderModel.fecha_lanzamiento))
+        query, _ = build_search_query(filter_params)
         result = await session.execute(query)
         rows = result.scalars().all()
 
@@ -462,7 +491,7 @@ async def get_licitaciones(
         for idx, t in enumerate(rows, start=1):
             raw = t.raw_payload if isinstance(t.raw_payload, dict) else {}
             entidad = extract_entidad(raw)
-            desc_text = t.descripcion or t.titulo or "Sin descripción"
+            desc_text = t.descripcion_limpia or t.descripcion or t.titulo or "Sin descripción"
             region = extract_region(raw, desc_text)
             f_limite = extract_fecha_limite(raw, t.fecha_lanzamiento)
             f_pub = t.fecha_lanzamiento.strftime("%Y-%m-%d") if t.fecha_lanzamiento else datetime.now().strftime("%Y-%m-%d")
@@ -490,12 +519,26 @@ async def get_licitaciones(
                     {"nombre": "Resumen Ejecutivo", "formato": "PDF", "tamano": "850 KB", "actualizado": f_pub}
                 ]
 
+            motivos_ia = [
+                f"Proceso de {t.objeto_contratacion} registrado en SEACE",
+                f"Entidad compradora: {entidad}",
+                f"Monto estimado de S/ {float(t.monto_estimado or 0):,.2f}"
+            ]
+            if t.rubro:
+                motivos_ia.insert(0, f"Rubro identificado por IA: {t.rubro}")
+
             formatted.append({
                 "id": t.ocid,
                 "ocid": t.ocid,
                 "codigo_seace": t.titulo or t.id_proceso,
                 "entidad": entidad,
                 "objeto": desc_text,
+                "descripcion_limpia": t.descripcion_limpia or desc_text,
+                "descripcion_original": t.descripcion or t.titulo or "",
+                "rubro": t.rubro or "Servicios Generales",
+                "rubro_confianza": float(t.rubro_confianza) if t.rubro_confianza is not None else None,
+                "palabras_clave": t.palabras_clave or [],
+                "ia_estado": t.ia_estado or "PENDIENTE",
                 "tipo_objeto": t.objeto_contratacion or "Servicios",
                 "estado": t.estado or "Vigente",
                 "fecha_publicacion": f_pub,
@@ -510,15 +553,84 @@ async def get_licitaciones(
                 "fase_actual": 2,
                 "hitos": hitos,
                 "documentos": documentos,
-                "motivos_ia": [
-                    f"Proceso de {t.objeto_contratacion} registrado en SEACE",
-                    f"Entidad compradora: {entidad}",
-                    f"Monto estimado de S/ {float(t.monto_estimado or 0):,.2f}"
-                ],
+                "motivos_ia": motivos_ia,
                 "raw_payload": raw
             })
 
         return formatted
+    
+# Montar router de exportación CSV / XLSX antes de la ruta parametrizada /{ocid}
+app.include_router(export_router)
+app.include_router(metrics_router)
+app.include_router(auth_router)
+app.include_router(saved_filters_router)
+
+@app.get("/api/licitaciones/{ocid}")
+async def get_licitacion_by_ocid(ocid: str):
+    """Retorna el detalle completo de una licitación por su OCID."""
+    async with AsyncSessionLocal() as session:
+        res = await session.execute(select(TenderModel).where(TenderModel.ocid == ocid))
+        t = res.scalar_one_or_none()
+        if not t:
+            raise HTTPException(status_code=404, detail="Licitación no encontrada")
+
+        raw = t.raw_payload if isinstance(t.raw_payload, dict) else {}
+        entidad = extract_entidad(raw)
+        desc_text = t.descripcion_limpia or t.descripcion or t.titulo or "Sin descripción"
+        f_pub = t.fecha_lanzamiento.strftime("%Y-%m-%d") if t.fecha_lanzamiento else ""
+        f_limite = extract_fecha_limite(raw, t.fecha_lanzamiento)
+
+        return {
+            "id": t.ocid,
+            "ocid": t.ocid,
+            "codigo_seace": t.titulo or t.id_proceso,
+            "entidad": entidad,
+            "objeto": desc_text,
+            "descripcion_limpia": t.descripcion_limpia,
+            "descripcion_original": t.descripcion,
+            "rubro": t.rubro or "Servicios Generales",
+            "rubro_confianza": float(t.rubro_confianza) if t.rubro_confianza is not None else None,
+            "palabras_clave": t.palabras_clave or [],
+            "ia_estado": t.ia_estado or "PENDIENTE",
+            "tipo_objeto": t.objeto_contratacion or "Servicios",
+            "estado": t.estado or "Vigente",
+            "fecha_publicacion": f_pub,
+            "fecha_limite": f_limite,
+            "valor_estimado": float(t.monto_estimado) if t.monto_estimado is not None else 0.0,
+            "moneda": t.moneda or "PEN",
+            "region": extract_region(raw, desc_text),
+            "tipo_proceso": extract_tipo_proceso(t.titulo),
+            "cui": t.id_proceso or "",
+            "raw_payload": raw
+        }
+
+@app.get("/api/v1/search/suggest")
+async def get_search_autocomplete(q: str = Query(..., min_length=2, description="Término de búsqueda")):
+    """Sugerencias de autocompletado en tiempo real para la barra de búsqueda."""
+    async with AsyncSessionLocal() as session:
+        return await get_search_suggestions(session, q)
+
+@app.get("/api/v1/rubros")
+async def get_rubros():
+    """Retorna la lista de rubros disponibles con el conteo de convocatorias en base de datos."""
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(TenderModel.rubro, func.count(TenderModel.ocid))
+            .where(TenderModel.rubro.isnot(None))
+            .group_by(TenderModel.rubro)
+            .order_by(desc(func.count(TenderModel.ocid)))
+        )
+        res = await session.execute(stmt)
+        counts = {r[0]: r[1] for r in res.all()}
+
+        items = []
+        for rubro in RUBROS_VALIDOS:
+            items.append({
+                "id": rubro,
+                "label": rubro,
+                "total": counts.get(rubro, 0)
+            })
+        return items
 
 @app.get("/api/v1/etl/config-options")
 async def get_config_options():

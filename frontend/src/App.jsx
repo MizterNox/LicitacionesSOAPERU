@@ -11,6 +11,9 @@ import FilterBar from './components/dashboard/FilterBar.jsx'
 import BiddingTable from './components/dashboard/BiddingTable.jsx'
 import DetailPanel from './components/dashboard/DetailPanel.jsx'
 import ConfigView from './components/config/ConfigView.jsx'
+import { AnalyticsView } from './components/analytics/AnalyticsView.jsx'
+import AlertsView from './components/alerts/AlertsView.jsx'
+import AuthModal from './components/auth/AuthModal.jsx'
 import { Icon } from './components/ui/Icon.jsx'
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -86,6 +89,12 @@ function MainContent() {
       </div>
     )
   }
+  if (state.view === 'analitica') {
+    return <AnalyticsView />
+  }
+  if (state.view === 'alertas') {
+    return <AlertsView />
+  }
   if (state.view === 'config') {
     return <ConfigView />
   }
@@ -97,7 +106,7 @@ export default function App() {
   const selected = useSelectedConvocatoria()
   const { filters, query } = state
 
-  // Cargar estado inicial de sincronización de cron y tipos activos
+  // Cargar estado inicial de sincronización de cron, tipos activos y lista de rubros
   useEffect(() => {
     const fetchCronAndConfig = async () => {
       try {
@@ -113,8 +122,13 @@ export default function App() {
             dispatch({ type: 'SET_TIPOS_CONFIG', payload: dataTipos.tipos_activos })
           }
         }
+        const resRubros = await fetch(`${API_BASE_URL}/api/v1/rubros`)
+        if (resRubros.ok) {
+          const dataRubros = await resRubros.json()
+          dispatch({ type: 'SET_RUBROS_LIST', payload: dataRubros })
+        }
       } catch (e) {
-        console.warn('No se pudo precargar estado de cron/settings:', e)
+        console.warn('No se pudo precargar estado de cron/settings/rubros:', e)
       }
     }
     fetchCronAndConfig()
@@ -144,12 +158,17 @@ export default function App() {
           params.append('tipo', 'todos')
         }
 
-        // 3. Mapeo de fecha ('hoy' por defecto o 'todos')
+        // 3. Mapeo de rubro IA
+        if (filters.rubro && filters.rubro !== 'todos') {
+          params.append('rubro', filters.rubro)
+        }
+
+        // 4. Mapeo de fecha ('hoy' por defecto o 'todos')
         params.append('fecha', filters.fecha || 'todos')
 
-        // 4. Búsqueda por texto si existe
+        // 5. Búsqueda por texto (Full-Text Search) si existe
         if (query && query.trim()) {
-          params.append('search', query.trim())
+          params.append('q', query.trim())
         }
 
         const url = `${API_BASE_URL}/api/licitaciones?${params.toString()}`
@@ -173,7 +192,7 @@ export default function App() {
     return () => {
       isMounted = false
     }
-  }, [filters.estado, filters.tipoObjeto, filters.fecha, query, dispatch])
+  }, [filters.estado, filters.tipoObjeto, filters.rubro, filters.fecha, query, dispatch])
 
   useEffect(() => {
     const onKey = (e) => {
@@ -214,6 +233,7 @@ export default function App() {
           )}
         </main>
       </div>
+      <AuthModal />
     </div>
   )
 }

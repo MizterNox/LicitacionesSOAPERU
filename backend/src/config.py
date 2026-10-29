@@ -16,6 +16,31 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
 
+    # Configuración de Inteligencia Artificial (Google Gemini)
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    AI_ENABLED: bool = True
+    AI_BATCH_SIZE: int = 15
+    AI_MAX_CONCURRENCY: int = 3
+
+    # Seguridad y Autenticación JWT
+    JWT_SECRET: str = "licitlens-secret-key-fase3-secure-token-2026"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Configuración de Servidor de Correo (SMTP / Email Alerts)
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "alertas@licitlens.pe"
+    SMTP_FROM_NAME: str = "LicitLens Alertas IA"
+    SMTP_USE_TLS: bool = True
+    SMTP_USE_SSL: bool = False
+    MAIL_DRY_RUN: bool = True  # True para registrar en logs sin conectar a servidor SMTP real
+    FRONTEND_URL: str = "http://localhost:5173"
+
     # Configuración Pydantic: busca .env en CWD o relativo al directorio backend
     model_config = SettingsConfigDict(
         env_file=(

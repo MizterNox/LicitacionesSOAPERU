@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nuevas Convocatorias - LicitLens</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8fafc;
+      color: #1e293b;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrapper {
+      width: 100%;
+      background-color: #f8fafc;
+      padding: 30px 15px;
+    }
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    .header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      padding: 24px 30px;
+      text-align: left;
+    }
+    .header h1 {
+      margin: 0;
+      color: #ffffff;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .header .tagline {
+      margin: 4px 0 0 0;
+      color: #94a3b8;
+      font-size: 12px;
+    }
+    .content {
+      padding: 28px 30px;
+    }
+    .greeting {
+      font-size: 16px;
+      font-weight: 600;
+      color: #0f172a;
+      margin-bottom: 8px;
+    }
+    .summary-box {
+      background-color: #eff6ff;
+      border-left: 4px solid #3b82f6;
+      padding: 14px 18px;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 24px;
+      font-size: 14px;
+      color: #1e40af;
+      line-height: 1.5;
+    }
+    .filter-section {
+      margin-bottom: 24px;
+    }
+    .filter-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 2px solid #f1f5f9;
+      padding-bottom: 8px;
+      margin-bottom: 14px;
+    }
+    .filter-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .tender-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      background-color: #ffffff;
+      transition: border-color 0.2s;
+    }
+    .tender-header {
+      margin-bottom: 8px;
+    }
+    .tender-code {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      color: #0284c7;
+      background-color: #e0f2fe;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-right: 6px;
+    }
+    .tender-rubro {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      color: #475569;
+      background-color: #f1f5f9;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .tender-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f172a;
+      margin: 6px 0;
+      line-height: 1.4;
+    }
+    .tender-desc {
+      font-size: 12px;
+      color: #64748b;
+      margin: 4px 0 10px 0;
+      line-height: 1.4;
+    }
+    .tender-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid #f8fafc;
+      padding-top: 10px;
+      font-size: 13px;
+    }
+    .tender-monto {
+      font-weight: 700;
+      color: #059669;
+    }
+    .btn-view {
+      display: inline-block;
+      background-color: #0284c7;
+      color: #ffffff !important;
+      text-decoration: none;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 6px;
+    }
+    .footer {
+      background-color: #f8fafc;
+      padding: 20px 30px;
+      border-top: 1px solid #e2e8f0;
+      text-align: center;
+      font-size: 11px;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+    .footer a {
+      color: #0284c7;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <!-- Encabezado con branding -->
+      <div class="header">
+        <h1>LicitLens &middot; Alertas Inteligentes</h1>
+        <div class="tagline">Monitor de Oportunidades SEACE &middot; OECE Per&uacute;</div>
+      </div>
+
+      <!-- Contenido Principal -->
+      <div class="content">
+        <div class="greeting">Hola, {{ user_nombre }}</div>
+        
+        <div class="summary-box">
+          Se han detectado <strong>{{ total_oportunidades }}</strong> nueva(s) convocatoria(s) que coinciden con tus filtros de b&uacute;squeda guardados.
+        </div>
+
+        {% for filtro in filtros_coincidentes %}
+        <div class="filter-section">
+          <div class="filter-header">
+            <span class="filter-title">&#9733; {{ filtro.nombre_filtro }}</span>
+          </div>
+
+          {% for t in filtro.oportunidades %}
+          <div class="tender-card">
+            <div class="tender-header">
+              <span class="tender-code">{{ t.id_proceso or t.ocid }}</span>
+              {% if t.rubro %}
+              <span class="tender-rubro">{{ t.rubro }}</span>
+              {% endif %}
+            </div>
+
+            <div class="tender-title">{{ t.titulo }}</div>
+            
+            {% if t.descripcion_corta %}
+            <div class="tender-desc">{{ t.descripcion_corta }}</div>
+            {% endif %}
+
+            <div class="tender-footer">
+              <div>
+                {% if t.monto_estimado %}
+                <span class="tender-monto">S/ {{ "{:,.2f}".format(t.monto_estimado) }}</span>
+                {% else %}
+                <span style="color: #94a3b8; font-size: 12px;">Monto por determinar</span>
+                {% endif %}
+              </div>
+              <div>
+                <a href="{{ frontend_url }}?q={{ t.ocid }}" class="btn-view" target="_blank">Ver Licitaci&oacute;n &rarr;</a>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+
+        <div style="margin-top: 25px; text-align: center;">
+          <a href="{{ frontend_url }}?view=alertas" style="font-size: 13px; font-weight: 600; color: #0284c7; text-decoration: none;">
+            Gestionar mis alertas y filtros guardados &rarr;
+          </a>
+        </div>
+      </div>
+
+      <!-- Pie de página -->
+      <div class="footer">
+        Recibes este correo autom&aacute;tico porque tienes activadas las alertas para tus b&uacute;squedas en <a href="{{ frontend_url }}">LicitLens</a>.<br>
+        Para cambiar la frecuencia o desactivar estas notificaciones, ingresa a tu <a href="{{ frontend_url }}?view=alertas">panel de alertas</a>.<br><br>
+        &copy; 2026 LicitLens &middot; Plataforma de Inteligencia en Contrataciones P&uacute;blicas del Per&uacute;.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
