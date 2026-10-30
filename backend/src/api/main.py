@@ -43,7 +43,7 @@ from api.routers.auth import router as auth_router
 from api.routers.saved_filters import router as saved_filters_router
 from config import settings
 from models.user import UserModel
-from api.deps import get_current_user
+from api.deps import get_current_user, get_current_active_admin
 
 API_URL = settings.API_URL
 
@@ -208,14 +208,47 @@ async def job_etl_programado():
         except Exception as e_upd:
             print(f"[SCHEDULER] Error al actualizar log de cron en BD: {e_upd}")
 
+async def ensure_admin_user():
+    """
+    Garantiza que exista al menos un usuario con rol 'admin'.
+    1. Si settings.ADMIN_EMAIL está configurado, promueve a ese usuario a 'admin'.
+    2. Si no, promueve al primer usuario registrado en la base de datos (por id asc).
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            admin_target = None
+            if settings.ADMIN_EMAIL:
+                clean_email = settings.ADMIN_EMAIL.strip().lower()
+                res = await session.execute(
+                    select(UserModel).where(func.lower(UserModel.email) == clean_email)
+                )
+                admin_target = res.scalar_one_or_none()
+
+            if not admin_target:
+                res = await session.execute(
+                    select(UserModel).order_by(UserModel.id.asc()).limit(1)
+                )
+                admin_target = res.scalar_one_or_none()
+
+            if admin_target and admin_target.rol != "admin":
+                admin_target.rol = "admin"
+                await session.commit()
+                print(f"[BOOTSTRAP] Usuario {admin_target.email} promovido a rol 'admin'.")
+            elif admin_target:
+                print(f"[BOOTSTRAP] Usuario admin verificado: {admin_target.email} (rol: admin).")
+    except Exception as e:
+        print(f"[BOOTSTRAP ERROR] No se pudo verificar o promover usuario admin: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Verificar conectividad con PostgreSQL
+    # Verificar conectividad con PostgreSQL y garantizar usuario admin
     try:
         from sqlalchemy import text
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         print("[FASTAPI LIFESPAN] Conexión a Base de Datos PostgreSQL verificada correctamente.")
+        await ensure_admin_user()
     except Exception as e:
         print(f"[FASTAPI LIFESPAN ERROR] Error al conectar con la base de datos: {e}")
 
@@ -486,6 +519,8 @@ async def get_licitaciones(
     entidad: Optional[str] = Query(default=None, description="Entidad compradora"),
     tipo_proceso: Optional[str] = Query(default=None, description="Tipo de proceso: MC, AS, SIE, CP, LP"),
     solo_menores: Optional[bool] = Query(default=None, description="Filtrar solo contrataciones menores (<= 8 UIT)"),
+    primary_tag: Optional[str] = Query(default=None, description="Línea de negocio SOAPERU (ERP_ODOO, BI_ANALITICA, etc.)"),
+    min_score: Optional[int] = Query(default=None, ge=0, le=100, description="Puntaje mínimo de relevancia SOAPERU (0-100)"),
     plazo: Optional[str] = Query(default=None, description="Filtro de plazo restante: '48h', '7d', '30d'"),
     monto_min: Optional[float] = Query(default=None, description="Monto estimado mínimo"),
     monto_max: Optional[float] = Query(default=None, description="Monto estimado máximo"),
@@ -511,6 +546,8 @@ async def get_licitaciones(
         entidad=entidad,
         tipo_proceso=tipo_proceso,
         solo_menores=solo_menores,
+        primary_tag=primary_tag,
+        min_score=min_score,
         monto_min=monto_min,
         monto_max=monto_max,
         fecha=fecha,
@@ -549,27 +586,40 @@ async def get_licitaciones(
             documentos = extract_documents_normalized(raw)
             items = extract_items_normalized(raw)
 
+            soaperu_score = t.relevance_score if t.relevance_score is not None else 0
+            soaperu_tag = t.primary_tag or "OTROS"
+            soaperu_matched_tags = t.matched_tags or []
+            soaperu_matched_keywords = t.matched_keywords or []
+            is_menor_soaperu = t.is_minor_contract if t.is_minor_contract is not None else es_menor
+
             motivos_ia = [
                 f"Proceso de {t.objeto_contratacion} registrado en SEACE",
                 f"Entidad compradora: {entidad}",
                 f"Monto estimado de S/ {float(t.monto_estimado or 0):,.2f}"
             ]
-            if es_menor:
-                motivos_ia.insert(0, "Contratación de Menor Cuantía (≤ 8 UIT)")
+            if soaperu_tag and soaperu_tag not in ["OTROS", "EXCLUIDO"]:
+                motivos_ia.insert(0, f"Oportunidad SOAPERU: {soaperu_tag} ({soaperu_score} pts)")
+            if soaperu_matched_keywords:
+                motivos_ia.append(f"Keywords SOAPERU: {', '.join(str(k) for k in soaperu_matched_keywords[:3])}")
+            if is_menor_soaperu:
+                motivos_ia.insert(1 if soaperu_tag != 'OTROS' else 0, "Contratación Menor (≤ 8 UIT / Menor Cuantía)")
             if t.rubro:
-                motivos_ia.insert(0, f"Rubro identificado por IA: {t.rubro}")
+                motivos_ia.append(f"Rubro identificado por IA: {t.rubro}")
 
-            # Match score determinístico basado en calidad y relevancia
-            base_score = 70
-            if t.rubro_confianza:
-                base_score += int(float(t.rubro_confianza) * 15)
-            if t.monto_estimado and t.monto_estimado > 0:
-                base_score += 5
-            if f_limite:
-                base_score += 5
-            if es_menor:
-                base_score += 5
-            match_score = min(100, max(50, base_score))
+            # Match score: sincronizado con el relevance_score de SOAPERU si existe
+            if soaperu_score > 0:
+                match_score = soaperu_score
+            else:
+                base_score = 70
+                if t.rubro_confianza:
+                    base_score += int(float(t.rubro_confianza) * 15)
+                if t.monto_estimado and t.monto_estimado > 0:
+                    base_score += 5
+                if f_limite:
+                    base_score += 5
+                if is_menor_soaperu:
+                    base_score += 5
+                match_score = min(100, max(40, base_score))
 
             formatted.append({
                 "id": t.ocid,
@@ -593,9 +643,14 @@ async def get_licitaciones(
                 "region": region_val,
                 "modalidad": t.titulo.split("-")[0] if t.titulo else "CP",
                 "tipo_proceso": proc_tipo,
-                "es_menor_cuantia": es_menor,
+                "es_menor_cuantia": is_menor_soaperu,
                 "cui": t.cui or t.id_proceso or "",
                 "match_score": match_score,
+                "relevance_score": soaperu_score,
+                "primary_tag": soaperu_tag,
+                "matched_tags": soaperu_matched_tags,
+                "matched_keywords": soaperu_matched_keywords,
+                "is_minor_contract": is_menor_soaperu,
                 "fase_actual": 2,
                 "hitos": hitos,
                 "documentos": documentos,
@@ -641,26 +696,39 @@ async def get_licitacion_by_ocid(ocid: str):
             {"nombre": "Apertura de ofertas", "fecha": f_limite or f_pub}
         ]
 
+        soaperu_score = t.relevance_score if t.relevance_score is not None else 0
+        soaperu_tag = t.primary_tag or "OTROS"
+        soaperu_matched_tags = t.matched_tags or []
+        soaperu_matched_keywords = t.matched_keywords or []
+        is_menor_soaperu = t.is_minor_contract if t.is_minor_contract is not None else es_menor
+
         motivos_ia = [
             f"Proceso de {t.objeto_contratacion} registrado en SEACE",
             f"Entidad compradora: {entidad}",
             f"Monto estimado de S/ {float(t.monto_estimado or 0):,.2f}"
         ]
-        if es_menor:
-            motivos_ia.insert(0, "Contratación de Menor Cuantía (≤ 8 UIT)")
+        if soaperu_tag and soaperu_tag not in ["OTROS", "EXCLUIDO"]:
+            motivos_ia.insert(0, f"Oportunidad SOAPERU: {soaperu_tag} ({soaperu_score} pts)")
+        if soaperu_matched_keywords:
+            motivos_ia.append(f"Keywords SOAPERU: {', '.join(str(k) for k in soaperu_matched_keywords[:3])}")
+        if is_menor_soaperu:
+            motivos_ia.insert(1 if soaperu_tag != 'OTROS' else 0, "Contratación Menor (≤ 8 UIT / Menor Cuantía)")
         if t.rubro:
-            motivos_ia.insert(0, f"Rubro identificado por IA: {t.rubro}")
+            motivos_ia.append(f"Rubro identificado por IA: {t.rubro}")
 
-        base_score = 70
-        if t.rubro_confianza:
-            base_score += int(float(t.rubro_confianza) * 15)
-        if t.monto_estimado and t.monto_estimado > 0:
-            base_score += 5
-        if f_limite:
-            base_score += 5
-        if es_menor:
-            base_score += 5
-        match_score = min(100, max(50, base_score))
+        if soaperu_score > 0:
+            match_score = soaperu_score
+        else:
+            base_score = 70
+            if t.rubro_confianza:
+                base_score += int(float(t.rubro_confianza) * 15)
+            if t.monto_estimado and t.monto_estimado > 0:
+                base_score += 5
+            if f_limite:
+                base_score += 5
+            if is_menor_soaperu:
+                base_score += 5
+            match_score = min(100, max(40, base_score))
 
         return {
             "id": t.ocid,
@@ -684,9 +752,14 @@ async def get_licitacion_by_ocid(ocid: str):
             "region": region_val,
             "modalidad": t.titulo.split("-")[0] if t.titulo else "CP",
             "tipo_proceso": proc_tipo,
-            "es_menor_cuantia": es_menor,
+            "es_menor_cuantia": is_menor_soaperu,
             "cui": t.cui or t.id_proceso or "",
             "match_score": match_score,
+            "relevance_score": soaperu_score,
+            "primary_tag": soaperu_tag,
+            "matched_tags": soaperu_matched_tags,
+            "matched_keywords": soaperu_matched_keywords,
+            "is_minor_contract": is_menor_soaperu,
             "fase_actual": 2,
             "hitos": hitos,
             "documentos": documentos,
@@ -757,7 +830,7 @@ async def trigger_etl(
     config: ETLConfigRequest,
     background_tasks: BackgroundTasks,
     sync: bool = Query(default=False),
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserModel = Depends(get_current_active_admin),
 ):
     if _etl_lock.locked():
         raise HTTPException(
@@ -857,6 +930,30 @@ async def trigger_etl(
         "status": "accepted",
         "message": "Pipeline ETL encolado exitosamente en segundo plano.",
         "config_aplicada": config_calculada
+    }
+
+@app.post("/api/v1/etl/recalculate-scoring")
+async def recalculate_soaperu_scoring(
+    background_tasks: BackgroundTasks,
+    sync: bool = Query(default=True),
+    current_user: UserModel = Depends(get_current_active_admin),
+):
+    """
+    Recalcula el scoring y taxonomía SOAPERU S.R.L. para todas las licitaciones registradas.
+    Requiere privilegios de Administrador.
+    """
+    from etl.backfill_scoring import run_backfill_scoring
+    if sync:
+        resultado = await run_backfill_scoring()
+        return {
+            "status": "success",
+            "message": "Recálculo retroactivo de scoring SOAPERU completado exitosamente.",
+            "resultado": resultado
+        }
+    background_tasks.add_task(run_backfill_scoring)
+    return {
+        "status": "accepted",
+        "message": "Recálculo de scoring SOAPERU encolado en segundo plano."
     }
 
 # =========================================================================
@@ -963,7 +1060,7 @@ async def get_tipos_config():
 @app.post("/api/v1/settings/tipos")
 async def save_tipos_config(
     payload: TiposConfigRequest,
-    current_user: UserModel = Depends(get_current_user),
+    current_user: UserModel = Depends(get_current_active_admin),
 ):
     """Guarda los tipos de contratación habilitados para el cron y la plataforma."""
     nuevos_tipos = await set_active_tipos(payload.tipos_activos)
