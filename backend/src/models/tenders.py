@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, String, DateTime, Text, Numeric, Index, Computed, text
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Text, Numeric, Index, Computed, text
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from database import Base
 from datetime import datetime
@@ -26,7 +26,7 @@ class TenderModel(Base):
     titulo = Column(Text, nullable=True)
     descripcion = Column(Text, nullable=True)  # Texto CRUDO original de OECE (nunca se sobrescribe con IA)
     estado = Column(String(50))  # Ej: Vigente
-    objeto_contratacion = Column(String(100))  # Bienes, Servicios, Obras
+    objeto_contratacion = Column(String(100), default="SERVICIOS", server_default="SERVICIOS")  # Servicios, Bienes, Obras
     monto_estimado = Column(Numeric(15, 2), nullable=True)
     moneda = Column(String(10), default="PEN")
     fecha_lanzamiento = Column(DateTime, nullable=True)
@@ -56,6 +56,13 @@ class TenderModel(Base):
     fecha_limite = Column(DateTime, nullable=True)  # Fin de presentación de ofertas (None si la fuente no lo informa)
     content_hash = Column(String(64), nullable=True)  # Detecta prórrogas / fe de erratas en procesos vigentes
 
+    # ---------------- Clasificación y Scoring SOAPERU S.R.L. ----------------
+    relevance_score = Column(Integer, nullable=False, default=0, server_default=text("0"), index=True)
+    primary_tag = Column(String(50), nullable=False, default="OTROS", server_default=text("'OTROS'"), index=True)
+    matched_tags = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    matched_keywords = Column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    is_minor_contract = Column(Boolean, nullable=False, default=True, server_default=text("true"), index=True)
+
     # ---------------- Full-Text Search ----------------
     # Columna generada por PostgreSQL (solo lectura desde el ORM)
     search_vector = Column(TSVECTOR, Computed(SEARCH_VECTOR_EXPR, persisted=True))
@@ -73,4 +80,10 @@ class TenderModel(Base):
         Index("ix_tenders_tipo_proceso", "tipo_proceso"),
         Index("ix_tenders_menor_cuantia", "fecha_lanzamiento", postgresql_where=text("es_menor_cuantia = true")),
         Index("ix_tenders_estado_objeto_fecha", "estado", "objeto_contratacion", text("fecha_lanzamiento DESC")),
+        Index("ix_tenders_relevance_score", "relevance_score"),
+        Index("ix_tenders_primary_tag", "primary_tag"),
+        Index("ix_tenders_is_minor_contract", "is_minor_contract"),
+        Index("ix_tenders_objeto_contratacion", "objeto_contratacion"),
+        Index("ix_tenders_soaperu_relevance_fecha", "relevance_score", text("fecha_lanzamiento DESC")),
+        Index("ix_tenders_soaperu_tag_score", "primary_tag", "relevance_score"),
     )
