@@ -1,7 +1,7 @@
 import sys
 import os
 import asyncio
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Query
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
@@ -42,6 +42,8 @@ from api.routers.metrics import router as metrics_router
 from api.routers.auth import router as auth_router
 from api.routers.saved_filters import router as saved_filters_router
 from config import settings
+from models.user import UserModel
+from api.deps import get_current_user
 
 API_URL = settings.API_URL
 
@@ -238,22 +240,27 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Habilitar CORS para permitir llamadas desde el Frontend (React en http://localhost:5173, etc.)
+# CORS estricto: solo orígenes explícitos configurados en settings.CORS_ORIGINS.
+# El comodín "*" es incompatible con allow_credentials=True (cookie httpOnly del refresh token).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "*"
-    ],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Refresh-Token"],
+    expose_headers=["Content-Disposition", "Retry-After"],
+    max_age=600,
 )
+
+
+@app.middleware("http")
+async def security_headers_middleware(request, call_next):
+    """Cabeceras de seguridad HTTP básicas (OWASP Secure Headers)."""
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
 
 
 
@@ -749,7 +756,8 @@ async def get_etl_status():
 async def trigger_etl(
     config: ETLConfigRequest,
     background_tasks: BackgroundTasks,
-    sync: bool = Query(default=False)
+    sync: bool = Query(default=False),
+    current_user: UserModel = Depends(get_current_user),
 ):
     if _etl_lock.locked():
         raise HTTPException(
@@ -953,7 +961,10 @@ async def get_tipos_config():
     }
 
 @app.post("/api/v1/settings/tipos")
-async def save_tipos_config(payload: TiposConfigRequest):
+async def save_tipos_config(
+    payload: TiposConfigRequest,
+    current_user: UserModel = Depends(get_current_user),
+):
     """Guarda los tipos de contratación habilitados para el cron y la plataforma."""
     nuevos_tipos = await set_active_tipos(payload.tipos_activos)
     return {

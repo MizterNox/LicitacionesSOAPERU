@@ -39,8 +39,8 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    payload = decode_token(token)
-    if not payload or payload.get("type") != "access":
+    payload = decode_token(token, expected_type="access")
+    if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token de acceso inválido o expirado.",
@@ -58,9 +58,13 @@ async def get_current_user(
     async with AsyncSessionLocal() as session:
         try:
             uid_int = int(user_id)
-            res = await session.execute(select(UserModel).where(UserModel.id == uid_int))
-        except ValueError:
-            res = await session.execute(select(UserModel).where(UserModel.email == str(user_id)))
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token no contiene identificador de usuario válido.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        res = await session.execute(select(UserModel).where(UserModel.id == uid_int))
 
         user = res.scalar_one_or_none()
         if not user:

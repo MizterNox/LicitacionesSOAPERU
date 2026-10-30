@@ -34,6 +34,32 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # CORS: lista explícita de orígenes autorizados (separados por coma en .env).
+    # Nunca usar "*" junto con allow_credentials=True (OWASP A05).
+    CORS_ORIGINS: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:8080,http://127.0.0.1:8080"
+    )
+
+    # Cookie del refresh token: activar COOKIE_SECURE=true en producción (HTTPS)
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: str = "lax"
+
+    # Rate limiting contra fuerza bruta en login / registro
+    AUTH_RATE_LIMIT_ATTEMPTS: int = 5
+    AUTH_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    PASSWORD_MIN_LENGTH: int = 8
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        """Orígenes CORS normalizados, descartando comodines inseguros."""
+        return [
+            o.strip().rstrip("/")
+            for o in self.CORS_ORIGINS.split(",")
+            if o.strip() and o.strip() != "*"
+        ]
+
     # Configuración de Servidor de Correo (SMTP / Email Alerts)
     SMTP_HOST: str = "localhost"
     SMTP_PORT: int = 587
