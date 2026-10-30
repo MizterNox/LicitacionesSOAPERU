@@ -212,6 +212,42 @@ async def get_metrics_summary():
             for r in res_top_ent.fetchall()
         ]
 
+        # 5. Métricas de Inteligencia Comercial SOAPERU S.R.L.
+        res_soaperu = await session.execute(text("""
+            SELECT
+                COUNT(*) FILTER (WHERE relevance_score >= 75) AS alta_relevancia,
+                COUNT(*) FILTER (WHERE relevance_score >= 40 AND relevance_score < 75) AS media_relevancia,
+                COUNT(*) FILTER (WHERE relevance_score >= 40) AS total_oportunidades_ti,
+                COUNT(*) FILTER (WHERE primary_tag = 'EXCLUIDO') AS excluidas,
+                COUNT(*) FILTER (WHERE is_minor_contract = true) AS menores_cuantia
+            FROM tenders;
+        """))
+        soap = res_soaperu.fetchone()
+
+        res_tags = await session.execute(text("""
+            SELECT
+                primary_tag,
+                COUNT(*) AS count,
+                COALESCE(SUM(monto_estimado), 0) AS monto
+            FROM tenders
+            WHERE primary_tag NOT IN ('OTROS', 'EXCLUIDO')
+            GROUP BY primary_tag
+            ORDER BY count DESC;
+        """))
+        tags_distribucion = [
+            {"tag": r[0], "count": int(r[1]), "monto": float(r[2])}
+            for r in res_tags.fetchall()
+        ]
+
+        soaperu_summary = {
+            "alta_relevancia": int(soap[0]) if soap else 0,
+            "media_relevancia": int(soap[1]) if soap else 0,
+            "total_oportunidades_ti": int(soap[2]) if soap else 0,
+            "excluidas": int(soap[3]) if soap else 0,
+            "menores_cuantia": int(soap[4]) if soap else 0,
+            "distribucion_tags": tags_distribucion,
+        }
+
         return {
             "total_convocatorias": total_convocatorias,
             "monto_total": monto_total,
@@ -219,5 +255,6 @@ async def get_metrics_summary():
             "vigentes": vigentes,
             "distribucion_tipo": tipos_data,
             "top_rubros": rubros_data,
-            "top_entidades": top_entidades
+            "top_entidades": top_entidades,
+            "soaperu": soaperu_summary,
         }
