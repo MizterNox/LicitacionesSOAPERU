@@ -41,6 +41,10 @@ export default function ConfigView() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [syncFeedback, setSyncFeedback] = useState(null)
 
+  // Recálculo de Scoring SOAPERU
+  const [isRecalculating, setIsRecalculating] = useState(false)
+  const [recalcFeedback, setRecalcFeedback] = useState(null)
+
   const [cronStatus, setCronStatus] = useState(null)
   const [cronHistory, setCronHistory] = useState([])
   const [loadingData, setLoadingData] = useState(true)
@@ -131,6 +135,26 @@ export default function ConfigView() {
       setSyncFeedback({ type: 'error', text: err.message || 'Error durante la sincronización' })
     } finally {
       setIsSyncing(false)
+    }
+  }
+
+  const handleRecalculateScoring = async () => {
+    setIsRecalculating(true)
+    setRecalcFeedback(null)
+    try {
+      const data = await adminApi.recalculateScoring(true)
+      const res = data?.resultado || {}
+      setRecalcFeedback({
+        type: 'success',
+        text: `Scoring SOAPERU recalculado con éxito: ${res.total_procesados || 0} licitaciones evaluadas (${res.con_relevancia_mayor_cero || 0} oportunidades TI, ${res.excluidos || 0} excluidas).`
+      })
+    } catch (err) {
+      setRecalcFeedback({
+        type: 'error',
+        text: err.message || 'Error al recalcular el scoring SOAPERU.'
+      })
+    } finally {
+      setIsRecalculating(false)
     }
   }
 
@@ -375,6 +399,40 @@ export default function ConfigView() {
                   {isSyncing ? 'Sincronizando con SEACE...' : 'Iniciar Sincronización Ahora'}
                 </button>
               </div>
+
+              {/* Recálculo de Scoring y Taxonomía SOAPERU S.R.L. */}
+              <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-brand-50/40 p-3 rounded-xl border border-brand-100">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Icon name="sparkles" className="h-3.5 w-3.5 text-brand-600" />
+                    Motor de Scoring e Inteligencia SOAPERU S.R.L.
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Re-ejecuta el clasificador en las 7 líneas de negocio, códigos CUBSO (8111/4323) y filtros de exclusión sobre toda la BD.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRecalculateScoring}
+                  disabled={isRecalculating}
+                  className="btn-secondary text-xs self-start sm:self-auto font-bold border-brand-200 text-brand-800 hover:bg-brand-100"
+                >
+                  <Icon name="sparkles" className={`h-3.5 w-3.5 ${isRecalculating ? 'animate-spin' : ''}`} />
+                  {isRecalculating ? 'Recalculando scoring...' : 'Recalcular Scoring Retroactivo'}
+                </button>
+              </div>
+
+              {recalcFeedback && (
+                <div
+                  className={`rounded-lg p-2.5 text-xs font-semibold ${
+                    recalcFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-red-50 text-red-800 border border-red-200'
+                  }`}
+                >
+                  {recalcFeedback.text}
+                </div>
+              )}
             </div>
 
             {/* Panel de Estado del Planificador Automático */}

@@ -251,6 +251,8 @@ export const adminApi = {
     apiFetch('/api/v1/settings/tipos', { method: 'POST', body: JSON.stringify({ tipos_activos }) }),
   triggerEtl: (payload, sync = true) =>
     apiFetch('/api/v1/etl/trigger', { method: 'POST', params: { sync }, body: JSON.stringify(payload) }),
+  recalculateScoring: (sync = true) =>
+    apiFetch('/api/v1/etl/recalculate-scoring', { method: 'POST', params: { sync } }),
   getCronStatus: (signal) => apiFetch('/api/v1/cron/status', { signal }),
   getCronHistory: (limit = 15, signal) => apiFetch('/api/v1/cron/history', { params: { limit }, signal }),
 }
