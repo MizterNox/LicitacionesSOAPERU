@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useApp } from '../../store/AppState.jsx'
 import { Icon } from '../ui/Icon.jsx'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import { adminApi } from '../../lib/api.js'
 
 const TIPOS_INFO = {
   Servicios: {
@@ -49,29 +48,22 @@ export default function ConfigView() {
   const fetchConfigAndHistory = async () => {
     try {
       // 1. Cargar tipos activos
-      const resTipos = await fetch(`${API_BASE_URL}/api/v1/settings/tipos`)
-      if (resTipos.ok) {
-        const dataTipos = await resTipos.json()
-        if (dataTipos.tipos_activos) {
-          setTipos(dataTipos.tipos_activos)
-          dispatch({ type: 'SET_TIPOS_CONFIG', payload: dataTipos.tipos_activos })
-        }
+      const dataTipos = await adminApi.getTiposConfig().catch(() => null)
+      if (dataTipos?.tipos_activos) {
+        setTipos(dataTipos.tipos_activos)
+        dispatch({ type: 'SET_TIPOS_CONFIG', payload: dataTipos.tipos_activos })
       }
 
       // 2. Cargar estado de cron
-      const resStatus = await fetch(`${API_BASE_URL}/api/v1/cron/status`)
-      if (resStatus.ok) {
-        const dataStatus = await resStatus.json()
+      const dataStatus = await adminApi.getCronStatus().catch(() => null)
+      if (dataStatus) {
         setCronStatus(dataStatus)
         dispatch({ type: 'SET_CRON_STATUS', payload: dataStatus })
       }
 
       // 3. Cargar historial de ejecuciones
-      const resHist = await fetch(`${API_BASE_URL}/api/v1/cron/history?limit=15`)
-      if (resHist.ok) {
-        const dataHist = await resHist.json()
-        setCronHistory(dataHist)
-      }
+      const dataHist = await adminApi.getCronHistory(15).catch(() => null)
+      if (Array.isArray(dataHist)) setCronHistory(dataHist)
     } catch (err) {
       console.error('Error al cargar datos de configuración:', err)
     } finally {
@@ -99,13 +91,7 @@ export default function ConfigView() {
     setSavingTipos(true)
     setSaveMessage(null)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/settings/tipos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipos_activos: tipos }),
-      })
-      if (!res.ok) throw new Error('Error al guardar configuración')
-      const data = await res.json()
+      const data = await adminApi.saveTiposConfig(tipos)
       dispatch({ type: 'SET_TIPOS_CONFIG', payload: data.tipos_activos })
       setSaveMessage({ type: 'success', text: 'Preferencias guardadas exitosamente' })
       fetchConfigAndHistory()
@@ -125,22 +111,15 @@ export default function ConfigView() {
       let totalIgnorados = 0
 
       for (const t of targets) {
-        const res = await fetch(`${API_BASE_URL}/api/v1/etl/trigger?sync=true`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            objeto: t,
-            estado: 'Vigente',
-            dias_atras: Number(syncDays),
-            max_pages: Number(syncPages),
-          }),
+        const data = await adminApi.triggerEtl({
+          objeto: t,
+          estado: 'Vigente',
+          dias_atras: Number(syncDays),
+          max_pages: Number(syncPages),
         })
-        if (res.ok) {
-          const data = await res.json()
-          const r = data.resultado || {}
-          totalNuevos += r.total_guardados_db || 0
-          totalIgnorados += r.total_ignorados || 0
-        }
+        const r = data?.resultado || {}
+        totalNuevos += r.total_guardados_db || 0
+        totalIgnorados += r.total_ignorados || 0
       }
 
       setSyncFeedback({

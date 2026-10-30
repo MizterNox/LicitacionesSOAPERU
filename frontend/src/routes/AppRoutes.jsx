@@ -11,6 +11,7 @@ import { AnalyticsView } from '../components/analytics/AnalyticsView.jsx'
 import AlertsView from '../components/alerts/AlertsView.jsx'
 import ConfigView from '../components/config/ConfigView.jsx'
 import NotFoundView from '../views/NotFoundView.jsx'
+import ProtectedRoute from '../components/auth/ProtectedRoute.jsx'
 
 export default function AppRoutes() {
   return (
@@ -26,8 +27,12 @@ export default function AppRoutes() {
         <Route path="licitaciones/:ocid" element={<TenderDetailView />} />
         <Route path="postulaciones" element={<PostulacionesView />} />
         <Route path="analitica" element={<AnalyticsView />} />
-        <Route path="alertas" element={<AlertsView />} />
-        <Route path="config" element={<ConfigView />} />
+
+        {/* Rutas privadas: requieren sesión activa (JWT) */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="alertas" element={<AlertsView />} />
+          <Route path="config" element={<ConfigView />} />
+        </Route>
 
         {/* Fallback 404 */}
         <Route path="*" element={<NotFoundView />} />

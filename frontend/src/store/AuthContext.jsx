@@ -1,49 +1,40 @@
-import { createContext, useContext, useState, useEffect } from 'react'
-import { authApi } from '../lib/api.js'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { authApi, tokenStore, SESSION_EXPIRED_EVENT } from '../lib/api.js'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [token, setToken] = useState(() => localStorage.getItem('access_token'))
+  const [token, setToken] = useState(() => tokenStore.get())
   const [isLoading, setIsLoading] = useState(true)
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [authModalTab, setAuthModalTab] = useState('login') // 'login' | 'register'
+  const [sessionNotice, setSessionNotice] = useState(null)
+
+  const clearSession = useCallback(() => {
+    tokenStore.clear()
+    setToken(null)
+    setUser(null)
+  }, [])
 
   // Verificación de sesión al iniciar la aplicación
   useEffect(() => {
     let isMounted = true
     const checkAuth = async () => {
-      const storedToken = localStorage.getItem('access_token')
-      if (!storedToken) {
+      if (!tokenStore.get()) {
         setIsLoading(false)
         return
       }
 
       try {
+        // apiFetch renueva el access token automáticamente si recibe 401
         const userData = await authApi.getMe()
         if (isMounted) {
           setUser(userData)
+          setToken(tokenStore.get())
         }
-      } catch (err) {
-        // Si el access token expiró, intentar renovación silenciosa con refresh_token
-        try {
-          const refreshRes = await authApi.refresh()
-          if (refreshRes.access_token) {
-            localStorage.setItem('access_token', refreshRes.access_token)
-            if (isMounted) {
-              setToken(refreshRes.access_token)
-              setUser(refreshRes.user)
-            }
-          }
-        } catch {
-          // Sesión caducada completamente
-          localStorage.removeItem('access_token')
-          if (isMounted) {
-            setToken(null)
-            setUser(null)
-          }
-        }
+      } catch {
+        if (isMounted) clearSession()
       } finally {
         if (isMounted) setIsLoading(false)
       }
@@ -53,35 +44,53 @@ export function AuthProvider({ children }) {
     return () => {
       isMounted = false
     }
+  }, [clearSession])
+
+  // Cierre de sesión limpio cuando el interceptor detecta que el refresh token caducó
+  useEffect(() => {
+    const onExpired = () => {
+      clearSession()
+      setSessionNotice('Tu sesión ha expirado. Inicia sesión nuevamente para continuar.')
+      setAuthModalTab('login')
+      setIsAuthModalOpen(true)
+    }
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
+  }, [clearSession])
+
+  // Sincronización entre pestañas: logout en una pestaña cierra la sesión en todas
+  useEffect(() => {
+    const onStorage = (e) => {
+      if (e.key === 'access_token' && !e.newValue) {
+        setToken(null)
+        setUser(null)
+      }
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  const login = async (email, password) => {
-    const data = await authApi.login({ email, password })
-    localStorage.setItem('access_token', data.access_token)
+  const applySession = (data) => {
+    tokenStore.set(data.access_token)
     setToken(data.access_token)
     setUser(data.user)
+    setSessionNotice(null)
     setIsAuthModalOpen(false)
     return data.user
   }
 
-  const register = async (email, password, nombre) => {
-    const data = await authApi.register({ email, password, nombre })
-    localStorage.setItem('access_token', data.access_token)
-    setToken(data.access_token)
-    setUser(data.user)
-    setIsAuthModalOpen(false)
-    return data.user
-  }
+  const login = async (email, password) => applySession(await authApi.login({ email, password }))
+
+  const register = async (email, password, nombre) =>
+    applySession(await authApi.register({ email, password, nombre }))
 
   const logout = async () => {
     try {
       await authApi.logout()
     } catch {
-      // ignore
+      // ignore: la sesión local se limpia igualmente
     }
-    localStorage.removeItem('access_token')
-    setToken(null)
-    setUser(null)
+    clearSession()
   }
 
   const openAuthModal = (tab = 'login') => {
@@ -91,6 +100,7 @@ export function AuthProvider({ children }) {
 
   const closeAuthModal = () => {
     setIsAuthModalOpen(false)
+    setSessionNotice(null)
   }
 
   return (
@@ -108,6 +118,7 @@ export function AuthProvider({ children }) {
         closeAuthModal,
         authModalTab,
         setAuthModalTab,
+        sessionNotice,
       }}
     >
       {children}

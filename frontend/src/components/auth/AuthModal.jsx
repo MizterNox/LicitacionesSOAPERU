@@ -3,7 +3,7 @@ import { useAuth } from '../../store/AuthContext.jsx'
 import { Icon, LogoMark } from '../ui/Icon.jsx'
 
 export function AuthModal() {
-  const { isAuthModalOpen, closeAuthModal, authModalTab, setAuthModalTab, login, register } = useAuth()
+  const { isAuthModalOpen, closeAuthModal, authModalTab, setAuthModalTab, login, register, sessionNotice } = useAuth()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -99,6 +99,12 @@ export function AuthModal() {
 
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {sessionNotice && !error && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 flex items-start gap-2">
+              <Icon name="hourglass" className="h-4 w-4 flex-shrink-0 text-amber-500 mt-0.5" />
+              <span>{sessionNotice}</span>
+            </div>
+          )}
           {error && (
             <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-start gap-2">
               <Icon name="alert-triangle" className="h-4 w-4 flex-shrink-0 text-red-500 mt-0.5" />
@@ -137,14 +143,16 @@ export function AuthModal() {
             <input
               type="password"
               required
-              minLength={6}
+              minLength={isLogin ? 1 : 8}
+              maxLength={128}
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="field h-9 text-xs"
             />
             {!isLogin && (
-              <p className="mt-1 text-[11px] text-slate-400">Mínimo 6 caracteres.</p>
+              <p className="mt-1 text-[11px] text-slate-400">Mínimo 8 caracteres, combinando letras y números.</p>
             )}
           </div>
 
