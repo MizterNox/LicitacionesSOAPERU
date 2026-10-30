@@ -15,7 +15,8 @@ export default function KpiRow() {
     return d >= 0 && d <= 7
   }).length
 
-  const SUGERIDAS = VIGENTES.filter((c) => (c.match_score ?? 0) >= 85).length
+  const SUGERIDAS = VIGENTES.filter((c) => (c.relevance_score ?? c.match_score ?? 0) >= 40).length
+  const ALTA_RELEVANCIA = VIGENTES.filter((c) => (c.relevance_score ?? 0) >= 75).length
   const CIERRES_48H = VIGENTES.filter((c) => {
     const dl = c.fecha_limite ? daysUntil(c.fecha_limite) : null
     return dl != null && dl >= 0 && dl <= 2
@@ -38,10 +39,10 @@ export default function KpiRow() {
       dark: false,
     },
     {
-      label: 'Sugeridas por IA (match ≥ 85%)',
+      label: 'Oportunidades SOAPERU TI',
       value: String(SUGERIDAS),
-      delta: 'perfil: servicios y obras',
-      deltaCls: 'text-brand-300',
+      delta: `${ALTA_RELEVANCIA} de alta afinidad (≥75 pts)`,
+      deltaCls: 'text-emerald-300',
       deltaIcon: 'sparkles',
       icon: 'sparkles',
       iconCls: 'bg-brand-500/20 text-brand-300',

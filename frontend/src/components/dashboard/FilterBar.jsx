@@ -15,6 +15,17 @@ const PLAZOS = [
   ['30d', 'Próximos 30 días'],
 ]
 
+const SOAPERU_CHIPS = [
+  { id: 'todas', label: 'Todas las Líneas' },
+  { id: 'ERP_ODOO', label: 'Odoo ERP' },
+  { id: 'BI_ANALITICA', label: 'Power BI' },
+  { id: 'CIBERSEGURIDAD', label: 'Kaspersky' },
+  { id: 'BACKUP_CONTINUIDAD', label: 'Veeam Backup' },
+  { id: 'MICROSOFT_CLOUD', label: 'Microsoft 365' },
+  { id: 'FACTURACION_ELECTRONICA', label: 'Facturación SUNAT' },
+  { id: 'DESARROLLO_SOFTWARE', label: 'Desarrollo Software' },
+]
+
 function Chevron() {
   return <Icon name="chevron-down" className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
 }
@@ -39,6 +50,8 @@ export default function FilterBar() {
 
   const active =
     (f.soloMenores ? 1 : 0) +
+    (f.primaryTag && f.primaryTag !== 'todas' ? 1 : 0) +
+    (f.soloRelevantesTI ? 1 : 0) +
     (f.tipo !== 'Todos' ? 1 : 0) +
     (f.entidad !== 'todas' ? 1 : 0) +
     (f.region !== 'todas' ? 1 : 0) +
@@ -73,6 +86,20 @@ export default function FilterBar() {
 
           <button
             type="button"
+            onClick={() => set('soloRelevantesTI', !f.soloRelevantesTI)}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition-all shadow-xs border ${
+              f.soloRelevantesTI
+                ? 'border-indigo-600 bg-indigo-600 text-white shadow-indigo-500/20'
+                : 'border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+            }`}
+            title="Mostrar solo oportunidades con afinidad TI (min_score ≥ 30)"
+          >
+            <Icon name="sparkles" className={`h-3.5 w-3.5 ${f.soloRelevantesTI ? 'text-white' : 'text-indigo-600'}`} />
+            <span>Solo Relevantes TI</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => set('plazo', f.plazo === '48h' ? 'todas' : '48h')}
             className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold transition-all shadow-xs border ${
               f.plazo === '48h'
@@ -89,7 +116,7 @@ export default function FilterBar() {
 
           {/* Quick toggle categoría objeto */}
           <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[11px] font-semibold">
-            {['todos', 'Servicios', 'Bienes', 'Obras'].map((cat) => (
+            {['Servicios', 'Bienes', 'Obras', 'todos'].map((cat) => (
               <button
                 key={cat}
                 type="button"
@@ -112,6 +139,32 @@ export default function FilterBar() {
               Tope legal: S/ 42,800 PEN
             </span>
           )}
+        </div>
+      </div>
+
+      {/* Barra de Chips Rápidos de Líneas de Negocio SOAPERU S.R.L. */}
+      <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/50 px-4 py-2 overflow-x-auto scroll-thin">
+        <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 shrink-0 flex items-center gap-1">
+          <Icon name="sparkles" className="h-3 w-3 text-brand-500" /> Líneas SOAPERU:
+        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {SOAPERU_CHIPS.map((chip) => {
+            const isSelected = (f.primaryTag || 'todas') === chip.id
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => set('primaryTag', chip.id)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all ${
+                  isSelected
+                    ? 'bg-slate-900 text-white font-bold shadow-xs'
+                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                }`}
+              >
+                {chip.label}
+              </button>
+            )
+          })}
         </div>
       </div>
 

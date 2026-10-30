@@ -98,6 +98,14 @@ export default function App() {
           params.append('monto_max', filters.valorMax)
         }
 
+        // Filtros SOAPERU S.R.L. (Líneas de negocio TI y relevancia)
+        if (filters.primaryTag && filters.primaryTag !== 'todas') {
+          params.append('primary_tag', filters.primaryTag)
+        }
+        if (filters.soloRelevantesTI) {
+          params.append('min_score', '30')
+        }
+
         // Fecha de publicación ('todos' o YYYY-MM-DD)
         params.append('fecha', filters.fecha || 'todos')
 
@@ -141,6 +149,8 @@ export default function App() {
     filters.valorMin,
     filters.valorMax,
     filters.fecha,
+    filters.primaryTag,
+    filters.soloRelevantesTI,
     query,
     state.sort,
     dispatch

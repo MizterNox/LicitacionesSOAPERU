@@ -30,20 +30,27 @@ export function StatusBadge({ estado }) {
   )
 }
 
-// ---- Match Score de IA ----
-export function scoreTier(p) {
-  if (p >= 85) return { label: 'Alta', color: '#10b981', glow: 'rgba(16,185,129,.28)', text: 'text-emerald-600' }
-  if (p >= 60) return { label: 'Media', color: '#8b5cf6', glow: 'rgba(139,92,246,.30)', text: 'text-brand-600' }
-  return { label: 'Baja', color: '#94a3b8', glow: 'rgba(100,116,139,.20)', text: 'text-slate-500' }
+// ---- Match Score & Semáforo de Relevancia SOAPERU S.R.L. ----
+export function scoreTier(p, primaryTag) {
+  if (primaryTag === 'EXCLUIDO') {
+    return { label: 'Excluido', color: '#ef4444', glow: 'rgba(239,68,68,.28)', text: 'text-red-600', bg: 'bg-red-50 text-red-700 ring-red-500/20' }
+  }
+  if (p >= 75) {
+    return { label: 'Alta Relevancia TI', color: '#10b981', glow: 'rgba(16,185,129,.28)', text: 'text-emerald-600', bg: 'bg-emerald-50 text-emerald-700 ring-emerald-500/20' }
+  }
+  if (p >= 40) {
+    return { label: 'Afinidad TI Media', color: '#f59e0b', glow: 'rgba(245,158,11,.30)', text: 'text-amber-600', bg: 'bg-amber-50 text-amber-700 ring-amber-500/20' }
+  }
+  return { label: 'Baja Afinidad', color: '#94a3b8', glow: 'rgba(100,116,139,.20)', text: 'text-slate-500', bg: 'bg-slate-100 text-slate-600 ring-slate-400/20' }
 }
 
-export function ScoreRing({ p, className = 'h-10 w-10' }) {
-  const t = scoreTier(p)
+export function ScoreRing({ p, primaryTag, className = 'h-10 w-10' }) {
+  const t = scoreTier(p, primaryTag)
   return (
     <span
       className={`score-ring ${className}`}
       style={{ '--score': p, '--score-color': t.color, '--score-glow': t.glow }}
-      title={`Match IA: ${p}%`}
+      title={`Relevancia SOAPERU: ${p}% (${t.label})`}
       role="img"
       aria-label={`Relevancia ${p} por ciento, ${t.label.toLowerCase()}`}
     >
@@ -52,14 +59,38 @@ export function ScoreRing({ p, className = 'h-10 w-10' }) {
   )
 }
 
-// Celda de la tabla: anillo resaltado + tier (Alta / Media / Baja)
-export function ScoreCell({ p }) {
-  const t = scoreTier(p)
+// Celda de la tabla: anillo resaltado + tier (Alta / Media / Baja / Excluido)
+export function ScoreCell({ p, primaryTag }) {
+  const t = scoreTier(p, primaryTag)
   return (
-    <div className="flex flex-col items-center gap-1" title={`Match IA: ${p}% — Relevancia ${t.label.toLowerCase()}`}>
-      <ScoreRing p={p} className="h-10 w-10 transition-transform duration-200 group-hover:scale-110" />
-      <span className={`text-[9px] font-extrabold uppercase tracking-[0.1em] ${t.text}`}>{t.label}</span>
+    <div className="flex flex-col items-center gap-1" title={`Relevancia SOAPERU: ${p}% — ${t.label}`}>
+      <ScoreRing p={p} primaryTag={primaryTag} className="h-10 w-10 transition-transform duration-200 group-hover:scale-110" />
+      <span className={`text-[9px] font-extrabold uppercase tracking-[0.08em] text-center max-w-[70px] leading-tight ${t.text}`}>{t.label}</span>
     </div>
+  )
+}
+
+// Badge de Línea de Negocio SOAPERU S.R.L.
+const SOAPERU_TAG_INFO = {
+  ERP_ODOO: { label: 'Odoo ERP', color: 'bg-purple-50 text-purple-700 ring-purple-500/20' },
+  BI_ANALITICA: { label: 'Power BI', color: 'bg-amber-50 text-amber-700 ring-amber-500/20' },
+  CIBERSEGURIDAD: { label: 'Kaspersky / Ciberseguridad', color: 'bg-emerald-50 text-emerald-700 ring-emerald-500/20' },
+  BACKUP_CONTINUIDAD: { label: 'Veeam Backup', color: 'bg-teal-50 text-teal-700 ring-teal-500/20' },
+  MICROSOFT_CLOUD: { label: 'Microsoft 365', color: 'bg-blue-50 text-blue-700 ring-blue-500/20' },
+  FACTURACION_ELECTRONICA: { label: 'Facturación SUNAT', color: 'bg-sky-50 text-sky-700 ring-sky-500/20' },
+  DESARROLLO_SOFTWARE: { label: 'Desarrollo Software', color: 'bg-indigo-50 text-indigo-700 ring-indigo-500/20' },
+  EXCLUIDO: { label: 'No TI (Descartado)', color: 'bg-red-50 text-red-700 ring-red-500/20' },
+  OTROS: { label: 'General', color: 'bg-slate-100 text-slate-600 ring-slate-400/20' },
+}
+
+export function SoaPeruTagBadge({ tag, className = '' }) {
+  if (!tag || tag === 'OTROS') return null
+  const info = SOAPERU_TAG_INFO[tag] || { label: tag, color: 'bg-slate-100 text-slate-600 ring-slate-400/20' }
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-extrabold ring-1 ring-inset ${info.color} ${className}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
+      {info.label}
+    </span>
   )
 }
 

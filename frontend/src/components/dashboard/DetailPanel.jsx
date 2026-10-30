@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../../store/AppState.jsx'
 import { Icon } from '../ui/Icon.jsx'
 import Timeline from './Timeline.jsx'
-import { ScoreRing, TypeBadge, StatusBadge, RubroBadge } from './badges.jsx'
+import { ScoreRing, TypeBadge, StatusBadge, RubroBadge, SoaPeruTagBadge, scoreTier } from './badges.jsx'
 import { fmtPEN, fmtDate, daysUntil } from '../../utils/format.js'
 
 function Meta({ label, value }) {
@@ -75,8 +75,10 @@ export default function DetailPanel({ bid }) {
   const { dispatch } = useApp()
   const [showOriginal, setShowOriginal] = useState(false)
   const close = () => dispatch({ type: 'CLOSE_DETAIL' })
-  const matchTone = bid.match_score >= 85 ? 'text-emerald-600' : bid.match_score >= 60 ? 'text-brand-600' : 'text-slate-400'
-  const matchLabel = bid.match_score >= 85 ? 'Alta' : bid.match_score >= 60 ? 'Media' : 'Baja'
+  const effectiveScore = bid.relevance_score ?? bid.match_score ?? 0
+  const tier = scoreTier(effectiveScore, bid.primary_tag)
+  const matchTone = tier.text
+  const matchLabel = tier.label
 
   return (
     <aside
@@ -91,6 +93,7 @@ export default function DetailPanel({ bid }) {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <TypeBadge tipo={bid.tipo_proceso} />
+              {bid.primary_tag && <SoaPeruTagBadge tag={bid.primary_tag} />}
               <span className="font-mono text-[11px] font-semibold tracking-tight text-slate-400">{bid.codigo_seace}</span>
               <StatusBadge estado={bid.estado} />
               {bid.rubro && <RubroBadge rubro={bid.rubro} />}
@@ -149,18 +152,18 @@ export default function DetailPanel({ bid }) {
           </div>
         </div>
 
-        {/* Match IA */}
+        {/* Relevancia SOAPERU / Match */}
         <div className="mt-3.5 flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50/60 p-3">
-          <ScoreRing p={bid.match_score} className="h-11 w-11" />
+          <ScoreRing p={effectiveScore} primaryTag={bid.primary_tag} className="h-11 w-11" />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-2">
               <p className="flex items-center gap-1.5 text-xs font-bold text-brand-900">
-                <Icon name="sparkles" className="h-3.5 w-3.5 text-brand-500" /> Match IA · Relevancia
+                <Icon name="sparkles" className="h-3.5 w-3.5 text-brand-500" /> Relevancia SOAPERU
               </p>
               <p className={`text-[11px] font-semibold ${matchTone}`}>{matchLabel}</p>
             </div>
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-brand-100">
-              <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-fuchsia-500" style={{ width: `${bid.match_score}%` }} />
+              <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-emerald-500" style={{ width: `${Math.min(100, effectiveScore)}%` }} />
             </div>
           </div>
         </div>

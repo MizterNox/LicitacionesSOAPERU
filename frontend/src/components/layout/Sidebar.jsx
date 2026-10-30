@@ -18,8 +18,7 @@ const NAV = [
     items: [
       { path: '/menores', label: 'Contrataciones Menores', icon: 'zap', badge: '≤ 8 UIT', highlight: true },
       { path: '/buscador', label: 'Buscador SEACE', icon: 'search' },
-      { path: '/postulaciones', label: 'Mis Postulaciones', icon: 'kanban' },
-      { path: '/analitica', label: 'Analítica de Competidores', icon: 'chart' },
+      { path: '/analitica', label: 'Analítica de Mercado', icon: 'chart' },
     ],
   },
   {

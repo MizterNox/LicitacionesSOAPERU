@@ -6,7 +6,6 @@ import DashboardView from '../views/DashboardView.jsx'
 import MinorProcurementView from '../views/MinorProcurementView.jsx'
 import BuscadorView from '../views/BuscadorView.jsx'
 import TenderDetailView from '../views/TenderDetailView.jsx'
-import PostulacionesView from '../views/PostulacionesView.jsx'
 import { AnalyticsView } from '../components/analytics/AnalyticsView.jsx'
 import AlertsView from '../components/alerts/AlertsView.jsx'
 import ConfigView from '../components/config/ConfigView.jsx'
@@ -25,7 +24,6 @@ export default function AppRoutes() {
         <Route path="menores" element={<MinorProcurementView />} />
         <Route path="buscador" element={<BuscadorView />} />
         <Route path="licitaciones/:ocid" element={<TenderDetailView />} />
-        <Route path="postulaciones" element={<PostulacionesView />} />
         <Route path="analitica" element={<AnalyticsView />} />
 
         {/* Rutas privadas: requieren sesión activa (JWT) */}

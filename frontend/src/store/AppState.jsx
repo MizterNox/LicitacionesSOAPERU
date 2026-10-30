@@ -16,13 +16,15 @@ export const DEFAULT_FILTERS = {
   entidad: 'todas',
   region: 'todas',
   estado: 'Vigente', // 'todos' | 'Vigente' | 'Finalizado' (Vigente por defecto)
-  tipoObjeto: 'todos', // 'todos' | 'Bienes' | 'Servicios' | 'Obras'
+  tipoObjeto: 'Servicios', // 'Servicios' por defecto para SOAPERU
   rubro: 'todos', // 'todos' | 'Tecnología y Software' | ...
   valorMin: '',
   valorMax: '',
   plazo: 'todas', // 'todas' | '48h' | '7d' | '30d'
   fecha: 'todos', // 'todos' por defecto para mostrar las convocatorias de la base de datos
   soloMenores: false, // True = filtra estrictamente licitaciones <= 8 UIT (S/ 42,800)
+  primaryTag: 'todas', // 'todas' | 'ERP_ODOO' | 'BI_ANALITICA' | 'CIBERSEGURIDAD' | 'BACKUP_CONTINUIDAD' | 'MICROSOFT_CLOUD' | 'FACTURACION_ELECTRONICA' | 'DESARROLLO_SOFTWARE'
+  soloRelevantesTI: false, // True = min_score >= 30
 }
 
 const initialState = {
@@ -35,7 +37,7 @@ const initialState = {
   mobileNavOpen: false,
   filtersOpen: true,
   query: '',
-  sort: 'date', // 'date' | 'match' | 'value' | 'deadline'
+  sort: 'relevance', // 'relevance' | 'date' | 'match' | 'value' | 'deadline'
   filters: { ...DEFAULT_FILTERS },
   cronStatus: null, // Datos de la última ejecución del cron
   tiposConfig: ['Servicios', 'Bienes', 'Obras'], // Tipos activos

@@ -7,7 +7,7 @@ import { useApp } from '../store/AppState.jsx'
 import { tendersApi } from '../lib/api.js'
 import { Icon } from '../components/ui/Icon.jsx'
 import { DetailSkeleton } from '../components/ui/Skeleton.jsx'
-import { ScoreRing, TypeBadge, StatusBadge, RubroBadge } from '../components/dashboard/badges.jsx'
+import { ScoreRing, TypeBadge, StatusBadge, RubroBadge, SoaPeruTagBadge, scoreTier } from '../components/dashboard/badges.jsx'
 import Timeline from '../components/dashboard/Timeline.jsx'
 import { fmtPEN, fmtDate, daysUntil } from '../utils/format.js'
 
@@ -78,8 +78,10 @@ export default function TenderDetailView() {
     )
   }
 
-  const matchTone = (bid.match_score || 70) >= 85 ? 'text-emerald-600' : (bid.match_score || 70) >= 60 ? 'text-brand-600' : 'text-slate-500'
-  const matchLabel = (bid.match_score || 70) >= 85 ? 'Alta Relevancia' : (bid.match_score || 70) >= 60 ? 'Relevancia Media' : 'Baja Relevancia'
+  const effectiveScore = bid.relevance_score ?? bid.match_score ?? 0
+  const tier = scoreTier(effectiveScore, bid.primary_tag)
+  const matchTone = tier.text
+  const matchLabel = tier.label
   const dLimite = bid.fecha_limite ? daysUntil(bid.fecha_limite) : null
 
   return (
@@ -111,7 +113,8 @@ export default function TenderDetailView() {
                   {bid.codigo_seace}
                 </span>
                 <StatusBadge estado={bid.estado} />
-                {bid.es_menor_cuantia && (
+                {bid.primary_tag && <SoaPeruTagBadge tag={bid.primary_tag} />}
+                {(bid.is_minor_contract || bid.es_menor_cuantia) && (
                   <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-800 border border-emerald-300">
                     <Icon name="zap" className="h-3 w-3 text-emerald-600" /> ≤ 8 UIT (Menor Cuantía)
                   </span>
@@ -148,10 +151,10 @@ export default function TenderDetailView() {
             {/* Match IA y Acciones rápidas */}
             <div className="flex flex-wrap items-center gap-3 shrink-0 lg:flex-col lg:items-end">
               <div className="flex items-center gap-3 rounded-xl border border-brand-100 bg-brand-50/70 p-3 shadow-xs">
-                <ScoreRing p={bid.match_score || 80} className="h-10 w-10" />
+                <ScoreRing p={effectiveScore} primaryTag={bid.primary_tag} className="h-10 w-10" />
                 <div className="leading-tight">
                   <div className="flex items-center gap-1 text-xs font-bold text-brand-900">
-                    <Icon name="sparkles" className="h-3.5 w-3.5 text-brand-500" /> Score IA
+                    <Icon name="sparkles" className="h-3.5 w-3.5 text-brand-500" /> Score SOAPERU
                   </div>
                   <span className={`text-[11px] font-semibold ${matchTone}`}>{matchLabel}</span>
                 </div>

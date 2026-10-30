@@ -3,7 +3,7 @@
 
 import { useApp } from '../../store/AppState.jsx'
 import { Icon } from '../ui/Icon.jsx'
-import { ScoreCell, ScoreRing, TypeBadge, StatusBadge, TipoObjetoBadge, RubroBadge } from './badges.jsx'
+import { ScoreCell, ScoreRing, TypeBadge, StatusBadge, TipoObjetoBadge, RubroBadge, SoaPeruTagBadge } from './badges.jsx'
 import { ExportMenu } from './ExportMenu.jsx'
 import { fmtPEN, fmtDateShort, daysUntil } from '../../utils/format.js'
 import { TableRowSkeleton, MobileCardSkeleton } from '../ui/Skeleton.jsx'
@@ -42,13 +42,14 @@ function DesktopRow({ c, selected, onSelect }) {
       }`}
     >
       <td className="px-4 py-3">
-        <ScoreCell p={c.match_score} />
+        <ScoreCell p={c.relevance_score ?? c.match_score ?? 0} primaryTag={c.primary_tag} />
       </td>
       <td className="px-3 py-3">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="font-mono text-xs font-bold tracking-tight text-slate-700">{c.codigo_seace}</span>
           <TypeBadge tipo={c.tipo_proceso} />
-          {c.es_menor_cuantia && (
+          {c.primary_tag && <SoaPeruTagBadge tag={c.primary_tag} />}
+          {(c.is_minor_contract || c.es_menor_cuantia) && (
             <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200" title="Contratación Menor a 8 UIT">
               <Icon name="zap" className="h-2.5 w-2.5 text-emerald-600" /> ≤ 8 UIT
             </span>
@@ -67,6 +68,11 @@ function DesktopRow({ c, selected, onSelect }) {
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <TipoObjetoBadge tipo={c.tipo_objeto} />
           {c.rubro && <RubroBadge rubro={c.rubro} />}
+          {c.matched_keywords && c.matched_keywords.slice(0, 2).map((kw) => (
+            <span key={kw} className="rounded bg-indigo-50 px-1.5 py-0.5 text-[9px] font-bold text-indigo-700 border border-indigo-200">
+              #{kw}
+            </span>
+          ))}
           {c.cui && (
             <span className="font-mono text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
               CUI {c.cui}
@@ -113,10 +119,11 @@ function MobileCard({ c, selected, onSelect }) {
       {/* Cabecera: Score + Código + Tipo + Estado */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-          <ScoreRing p={c.match_score} className="h-7 w-7 flex-shrink-0" />
+          <ScoreRing p={c.relevance_score ?? c.match_score ?? 0} primaryTag={c.primary_tag} className="h-7 w-7 flex-shrink-0" />
           <span className="font-mono text-xs font-bold text-slate-800 truncate">{c.codigo_seace}</span>
           <TypeBadge tipo={c.tipo_proceso} />
-          {c.es_menor_cuantia && (
+          {c.primary_tag && <SoaPeruTagBadge tag={c.primary_tag} />}
+          {(c.is_minor_contract || c.es_menor_cuantia) && (
             <span className="inline-flex items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
               <Icon name="zap" className="h-2.5 w-2.5 text-emerald-600" /> ≤ 8 UIT
             </span>
