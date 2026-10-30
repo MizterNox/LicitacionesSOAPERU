@@ -1,19 +1,31 @@
-fastapi>=0.110.0
-uvicorn>=0.28.0
+# --- API y servidor ---
+fastapi>=0.115.0
+starlette>=0.40.0          # CVE-2024-47874 (DoS multipart) corregido en 0.40.0
+uvicorn>=0.30.0
+pydantic>=2.7
+pydantic-settings>=2.3
+
+# --- Base de datos (PostgreSQL) ---
 asyncpg>=0.29.0
-httpx>=0.24.0
-pydantic>=2.0
-pydantic-settings>=2.0
-sqlalchemy>=2.0
-psycopg2-binary>=2.9
-tenacity>=8.2
-apscheduler>=3.10
+sqlalchemy>=2.0.30
 alembic>=1.13
+psycopg2-binary>=2.9       # driver síncrono opcional (herramientas/scripts de mantenimiento)
+
+# --- ETL / integraciones ---
+httpx>=0.27.0
+tenacity>=8.2
+apscheduler>=3.10,<4.0     # la serie 4.x cambia completamente la API
+openpyxl>=3.1.5
 google-genai>=2.25.0
+
+# --- Seguridad / autenticación ---
+pyjwt>=2.10.1              # CVE-2024-53861 corregido en 2.10.1
+argon2-cffi>=23.1.0
+
+# --- Correo / plantillas ---
+aiosmtplib>=5.0.0
+jinja2>=3.1.6              # CVE-2025-27516 (sandbox escape) corregido en 3.1.6
+
+# --- Pruebas ---
 pytest>=8.0
 pytest-asyncio>=0.23
-openpyxl>=3.1.5
-pyjwt>=2.8.0
-argon2-cffi>=23.1.0
-aiosmtplib>=5.0.0
-jinja2>=3.1.0
