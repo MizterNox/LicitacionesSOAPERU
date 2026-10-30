@@ -27,6 +27,8 @@ class TenderFilters(BaseModel):
     entidad: Optional[str] = Field(default=None, description="Nombre de la entidad convocante")
     tipo_proceso: Optional[str] = Field(default=None, description="Tipo de proceso: MC, AS, SIE, CP, LP")
     solo_menores: Optional[bool] = Field(default=None, description="True = filtrar solo contrataciones menores (<= 8 UIT)")
+    primary_tag: Optional[str] = Field(default=None, description="Línea de negocio SOAPERU (ERP_ODOO, BI_ANALITICA, etc.)")
+    min_score: Optional[int] = Field(default=None, description="Puntaje mínimo de relevancia SOAPERU (0-100)")
     monto_min: Optional[float] = Field(default=None, description="Monto estimado mínimo en PEN")
     monto_max: Optional[float] = Field(default=None, description="Monto estimado máximo en PEN")
     fecha: Optional[str] = Field(default=None, description="'hoy', 'todos' o fecha YYYY-MM-DD")
@@ -103,7 +105,20 @@ def build_search_query(filters: TenderFilters) -> Tuple[Any, Optional[Any]]:
 
     # 8. Filtro Contrataciones Menores (<= 8 UIT)
     if filters.solo_menores is True:
-        stmt = stmt.where(TenderModel.es_menor_cuantia.is_(True))
+        stmt = stmt.where(or_(TenderModel.is_minor_contract.is_(True), TenderModel.es_menor_cuantia.is_(True)))
+
+    # 8b. Filtros de Inteligencia Comercial SOAPERU S.R.L.
+    if filters.primary_tag and filters.primary_tag.strip().lower() not in ["todos", "all", ""]:
+        tag_clean = filters.primary_tag.strip().upper()
+        stmt = stmt.where(
+            or_(
+                TenderModel.primary_tag == tag_clean,
+                TenderModel.matched_tags.op("?")(tag_clean)
+            )
+        )
+
+    if filters.min_score is not None and filters.min_score > 0:
+        stmt = stmt.where(TenderModel.relevance_score >= filters.min_score)
 
     # 9. Filtro Rango de Montos
     if filters.monto_min is not None:
@@ -163,14 +178,19 @@ def build_search_query(filters: TenderFilters) -> Tuple[Any, Optional[Any]]:
 
     # 12. Ordenamiento
     sort_mode = (filters.sort or "relevance").lower()
-    if sort_mode == "relevance" and rank_expr is not None:
-        stmt = stmt.order_by(rank_expr.desc(), TenderModel.fecha_lanzamiento.desc().nullslast())
-    elif sort_mode == "value":
+    if sort_mode in ["relevance", "soaperu", "relevancia"]:
+        if rank_expr is not None:
+            stmt = stmt.order_by(rank_expr.desc(), TenderModel.relevance_score.desc(), TenderModel.fecha_lanzamiento.desc().nullslast())
+        else:
+            stmt = stmt.order_by(TenderModel.relevance_score.desc(), TenderModel.fecha_lanzamiento.desc().nullslast())
+    elif sort_mode in ["value", "monto_desc"]:
         stmt = stmt.order_by(TenderModel.monto_estimado.desc().nullslast(), TenderModel.fecha_lanzamiento.desc().nullslast())
+    elif sort_mode in ["monto_asc"]:
+        stmt = stmt.order_by(TenderModel.monto_estimado.asc().nullslast(), TenderModel.fecha_lanzamiento.desc().nullslast())
     elif sort_mode == "deadline":
         stmt = stmt.order_by(TenderModel.fecha_limite.asc().nullslast(), TenderModel.fecha_lanzamiento.desc().nullslast())
     elif sort_mode == "match":
-        stmt = stmt.order_by(TenderModel.rubro_confianza.desc().nullslast(), TenderModel.fecha_lanzamiento.desc().nullslast())
+        stmt = stmt.order_by(TenderModel.relevance_score.desc(), TenderModel.rubro_confianza.desc().nullslast(), TenderModel.fecha_lanzamiento.desc().nullslast())
     else:  # 'date' u otros
         stmt = stmt.order_by(TenderModel.fecha_lanzamiento.desc().nullslast())
 

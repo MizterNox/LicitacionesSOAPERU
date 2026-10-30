@@ -18,8 +18,9 @@ _TENDER_COLUMNS = {c.name for c in TenderModel.__table__.columns if c.name != "s
 
 AI_COLUMNS = ("descripcion_limpia", "rubro", "rubro_confianza", "palabras_clave", "ia_estado", "ia_hash", "ia_procesado_en")
 
-# Derivados de raw_payload: se pueden refrescar siempre sin pisar datos editoriales
-DERIVED_COLUMNS = ("entidad_nombre", "entidad_ruc", "region", "tipo_proceso", "es_menor_cuantia", "cui", "fecha_limite")
+# Derivados de raw_payload y scoring SOAPERU: se pueden refrescar siempre sin pisar datos editoriales
+SOAPERU_COLUMNS = ("relevance_score", "primary_tag", "matched_tags", "matched_keywords", "is_minor_contract")
+DERIVED_COLUMNS = ("entidad_nombre", "entidad_ruc", "region", "tipo_proceso", "es_menor_cuantia", "cui", "fecha_limite") + SOAPERU_COLUMNS
 
 # Campos operativos que cambian con prórrogas / fe de erratas / bases integradas
 OPERATIONAL_COLUMNS = ("raw_payload", "monto_estimado", "content_hash") + DERIVED_COLUMNS

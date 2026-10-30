@@ -12,6 +12,7 @@ from schemas.ocds_schema import (
     is_menor_cuantia,
     parse_fecha,
 )
+from services.soaperu_scorer import SoaPeruOpportunityScorer
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,19 @@ def transform_and_filter_releases(
         ent = extract_entidad_info(release)
         tipo = extract_tipo_proceso_real(titulo, release, monto)
         fl = extract_fecha_limite_real(release, fecha_lanzamiento)
+        region_str = extract_region_info(release, descripcion or "")
+
+        # 5. Clasificación y Scoring de Oportunidad SOAPERU
+        scoring = SoaPeruOpportunityScorer.score_tender(
+            titulo=titulo,
+            descripcion=descripcion,
+            objeto_contratacion=categoria,
+            monto_estimado=monto,
+            region=region_str,
+            entidad_nombre=ent["nombre"],
+            tipo_proceso=tipo,
+            raw_payload=release,
+        )
 
         transformed.append({
             "ocid": ocid,
@@ -119,12 +133,18 @@ def transform_and_filter_releases(
             # Derivados (columnas promovidas en la migración 0004)
             "entidad_nombre": ent["nombre"],
             "entidad_ruc": ent["ruc"],
-            "region": extract_region_info(release, descripcion or ""),
+            "region": region_str,
             "tipo_proceso": tipo,
             "es_menor_cuantia": is_menor_cuantia(monto, tipo),
             "cui": extract_cui(titulo, descripcion),
             "fecha_limite": parse_fecha(fl["fecha_limite"]),
             "content_hash": compute_content_hash(release, est["estado"]),
+            # Clasificación y Scoring SOAPERU (migración 0005)
+            "relevance_score": scoring["relevance_score"],
+            "primary_tag": scoring["primary_tag"],
+            "matched_tags": scoring["matched_tags"],
+            "matched_keywords": scoring["matched_keywords"],
+            "is_minor_contract": scoring["is_minor_contract"],
         })
 
     if descartados_categoria:
